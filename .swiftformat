@@ -1,0 +1,85 @@
+# SwiftFormat configuration file
+# https://github.com/nicklockwood/SwiftFormat
+
+# Swift version
+--swiftversion 5.9
+
+# File options
+--exclude .build,Examples
+
+# Format options
+--indent 4
+--tabwidth 4
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen same-line
+--commas always
+--decimalgrouping 3,6
+--exponentgrouping disabled
+--fractiongrouping disabled
+--hexgrouping 4,8
+--octalgrouping 4,8
+--semicolons never
+--trimwhitespace always
+--insertlines enabled
+--removelines enabled
+
+# Rules
+--rules andOperator
+--rules blankLinesAroundMark
+--rules blankLinesAtEndOfScope
+--rules blankLinesAtStartOfScope
+--rules blankLinesBetweenScopes
+--rules consecutiveBlankLines
+--rules consecutiveSpaces
+--rules duplicateImports
+--rules elseOnSameLine
+--rules emptyBraces
+--rules enumNamespaces
+--rules extensionAccessControl
+--rules hoistPatternLet
+--rules indent
+--rules leadingDelimiters
+--rules linebreakAtEndOfFile
+--rules organizeDeclarations
+--rules redundantBackticks
+--rules redundantBrackets
+--rules redundantExtensionACL
+--rules redundantFileprivate
+--rules redundantGet
+--rules redundantInit
+--rules redundantLet
+--rules redundantLetError
+--rules redundantNilInit
+--rules redundantObjc
+--rules redundantParens
+--rules redundantPattern
+--rules redundantRawValues
+--rules redundantReturn
+--rules redundantSelf
+--rules redundantType
+--rules redundantVoidReturnType
+--rules semicolons
+--rules sortedImports
+--rules spaceAroundBrace
+--rules spaceAroundBrackets
+--rules spaceAroundComments
+--rules spaceAroundGenerics
+--rules spaceAroundOperators
+--rules spaceAroundParens
+--rules spaceInsideBrace
+--rules spaceInsideBrackets
+--rules spaceInsideComments
+--rules spaceInsideGenerics
+--rules spaceInsideParens
+--rules strongOutlets
+--rules trailingClosures
+--rules trailingCommas
+--rules trailingSpace
+--rules typeSugar
+--rules unusedArguments
+--rules wrap
+--rules wrapArguments
+--rules yodaConditions

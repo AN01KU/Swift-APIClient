@@ -6,8 +6,8 @@ import PackageDescription
 let package = Package(
     name: "APIClient",
     platforms: [
-        .macOS(.v10_15),
-        .iOS(.v12),
+        .macOS(.v12),
+        .iOS(.v13),
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -16,7 +16,7 @@ let package = Package(
             targets: ["APIClient"])
     ],
     dependencies: [
-        // Add dependencies here if needed in the future
+        // Dependencies will be added as needed
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
