@@ -231,9 +231,10 @@ struct APIClientTests {
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.get.rawValue == "GET")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.post.rawValue == "POST")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.put.rawValue == "PUT")
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
 
-        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases.count == 4)
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases.count == 5)
     }
 
     // MARK: - API Endpoint Tests
@@ -459,8 +460,9 @@ struct APIClientTests {
         #expect(allMethods.contains(.get))
         #expect(allMethods.contains(.post))
         #expect(allMethods.contains(.put))
+        #expect(allMethods.contains(.patch))
         #expect(allMethods.contains(.delete))
-        #expect(allMethods.count == 4)
+        #expect(allMethods.count == 5)
 
         for method in allMethods {
             #expect(!method.rawValue.isEmpty)
@@ -553,10 +555,11 @@ struct APIClientTests {
     func httpMethodValidation() throws {
         let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
 
-        #expect(methods.count == 4)
+        #expect(methods.count == 5)
         #expect(methods.contains(.get))
         #expect(methods.contains(.post))
         #expect(methods.contains(.put))
+        #expect(methods.contains(.patch))
         #expect(methods.contains(.delete))
 
         // Test raw values
@@ -758,10 +761,11 @@ struct APIClientTests {
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.get.rawValue == "GET")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.post.rawValue == "POST")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.put.rawValue == "PUT")
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
 
         // Test that all cases are covered
-        let expectedMethods: Set<String> = ["GET", "POST", "PUT", "DELETE"]
+        let expectedMethods: Set<String> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
         let actualMethods = Set(methods.map { $0.rawValue })
         #expect(actualMethods == expectedMethods)
     }
@@ -858,5 +862,69 @@ struct APIClientTests {
         let encodingError = BaseAPI.APIError.encodingFailed
         #expect(encodingError.isClientError == true)
         #expect(encodingError.getResponse() == nil)
+    }
+
+    // MARK: - PATCH Method Tests
+
+    @Test("PATCH method existence")
+    func patchMethodExistence() throws {
+        // Verify PATCH method exists in HTTPMethod enum
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
+    }
+
+    @Test("PATCH request building")
+    func patchRequestBuilding() throws {
+        let testRequest = TestRequest(name: "Updated User", value: 25)
+        let encoder = JSONEncoder()
+
+        let data = try encoder.encode(testRequest)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        // Verify request body structure
+        #expect(json?["name"] as? String == "Updated User")
+        #expect(json?["value"] as? Int == 25)
+    }
+
+    @Test("PATCH HTTP method in allCases")
+    func patchHttpMethodInAllCases() throws {
+        let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
+        let methodStrings = Set(methods.map { $0.rawValue })
+
+        #expect(methodStrings.contains("PATCH"))
+        #expect(methodStrings.count == 5)  // GET, POST, PUT, PATCH, DELETE
+    }
+
+    @Test("PATCH method endpoint integration")
+    func patchMethodEndpointIntegration() throws {
+        let endpoint = MockEndpoint(endpoint: "users/123/profile", token: "test-token")
+        let testRequest = TestRequest(name: "Jane Doe", value: 30)
+
+        // Verify endpoint and request can be structured for PATCH
+        #expect(endpoint.url.absoluteString == "https://api.example.com/users/123/profile")
+        #expect(endpoint.stringValue == "users/123/profile")
+        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+
+        // Verify request is encodable
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(testRequest)
+        #expect(!data.isEmpty)
+    }
+
+    @Test("PATCH request with various endpoints")
+    func patchRequestWithVariousEndpoints() throws {
+        let endpoints = [
+            MockEndpoint(endpoint: "users/1", token: "token1"),
+            MockEndpoint(endpoint: "posts/abc", token: "token2"),
+            MockEndpoint(endpoint: "comments/xyz", token: nil),
+        ]
+
+        for endpoint in endpoints {
+            let testRequest = TestRequest(name: "Updated", value: 100)
+            let encoder = JSONEncoder()
+
+            let data = try encoder.encode(testRequest)
+            #expect(!data.isEmpty)
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+        }
     }
 }

@@ -11,6 +11,7 @@ extension BaseAPI {
             case get = "GET"
             case post = "POST"
             case put = "PUT"
+            case patch = "PATCH"
             case delete = "DELETE"
         }
 
@@ -173,6 +174,41 @@ extension BaseAPI {
             Task {
                 do {
                     let result = try await put(
+                        endpoint, body: body, printRequestBody: printRequestBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
+        // MARK: - PATCH Requests
+
+        public func patch<Request: Encodable>(
+            _ endpoint: Endpoint,
+            body: Request,
+            printRequestBody: Bool = false
+        ) async throws -> HTTPURLResponse {
+            let result: APIResponse<EmptyResponse> = try await performRequest(
+                endpoint: endpoint,
+                method: .patch,
+                body: body,
+                printRequestBody: printRequestBody,
+                printResponseBody: false
+            )
+            return result.response
+        }
+
+        public func patch<Request>(
+            _ endpoint: Endpoint,
+            body: Request,
+            printRequestBody: Bool = false,
+            then callback: @escaping (APIURLResult) -> Void
+        ) where Request: Encodable {
+            Task {
+                do {
+                    let result = try await patch(
                         endpoint, body: body, printRequestBody: printRequestBody)
                     callback(.success(result))
                 } catch {
