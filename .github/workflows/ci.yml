@@ -22,7 +22,7 @@ jobs:
       - name: Set up Swift
         uses: swift-actions/setup-swift@v1
         with:
-          swift-version: "6.2"
+          swift-version: "5"
       
       - name: Build
         run: swift build -v
