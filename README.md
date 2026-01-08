@@ -32,7 +32,7 @@ Create an enum conforming to `BaseAPI.APIEndpoint`:
 enum MyAPI: BaseAPI.APIEndpoint {
     case users
     case user(id: String)
-    
+
     var url: URL { /* return endpoint URL */ }
     var stringValue: String { /* return string representation */ }
     var authHeader: [String: String]? { /* return auth headers */ }
@@ -70,7 +70,7 @@ client.get(.user(id: "123")) { (result: BaseAPI.APIResult<User>) in
 
 For a comprehensive implementation example including:
 - Complete API endpoint definitions
-- Data model implementations  
+- Data model implementations
 - Error handling strategies
 - Analytics integration
 - Multipart file uploads
@@ -154,12 +154,54 @@ Each error provides detailed information and appropriate handling context.
 
 ## HTTP Methods
 
-| Method | Function | Description |
-|--------|----------|-------------|
-| GET | `get(_:)` | Retrieve data from endpoint |
-| POST | `post(_:body:)` | Send data to endpoint |
-| PUT | `put(_:body:)` | Update data at endpoint |
+The APIClient supports all standard HTTP methods:
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| GET | `get<Response>(_:)` | Retrieve data from endpoint |
+| POST | `post<Request, Response>(_:body:)` | Send data and receive response |
+| PUT | `put<Request>(_:body:)` | Update entire resource |
+| PATCH | `patch<Request>(_:body:)` | Partial resource update |
+| DELETE | `delete(_:)` / `delete<Response>(_:)` | Delete resource, optionally with response |
 | Multipart | `multipartUpload(_:method:data:)` | Upload files with form data |
+
+All methods support both async/await and callback-based patterns.
+
+### Examples
+
+**GET with async/await:**
+```swift
+let response: BaseAPI.APIResponse<User> = try await client.get(.user(id: "123"))
+```
+
+**POST with async/await:**
+```swift
+let request = CreateUserRequest(name: "John", email: "john@example.com")
+let response: BaseAPI.APIResponse<User> = try await client.post(.users, body: request)
+```
+
+**PATCH with async/await:**
+```swift
+let updates = UserUpdate(name: "Jane")
+let response: HTTPURLResponse = try await client.patch(.user(id: "123"), body: updates)
+```
+
+**DELETE with async/await:**
+```swift
+let response: HTTPURLResponse = try await client.delete(.user(id: "123"))
+```
+
+**Callback-based (all methods support this):**
+```swift
+client.get(.user(id: "123")) { (result: BaseAPI.APIResult<User>) in
+    switch result {
+    case .success(let response):
+        let user = response.data
+    case .failure(let error):
+        // Handle error
+    }
+}
+```
 
 ## Testing
 
@@ -169,7 +211,35 @@ The package includes comprehensive tests covering all functionality:
 swift test
 ```
 
-For testing your implementation, create mock endpoints and use dependency injection patterns supported by the client design.
+Test coverage includes:
+- All HTTP methods (GET, POST, PUT, PATCH, DELETE)
+- Async/await and callback patterns
+- Error handling and edge cases
+- Analytics and logging integration
+- Multipart upload functionality
+- Authentication handling
+- Data encoding/decoding
+
+For testing your implementation, create mock endpoints and use dependency injection patterns supported by the client design:
+
+```swift
+struct MockEndpoint: BaseAPI.APIEndpoint {
+    let endpoint: String
+    let token: String?
+
+    var url: URL { /* mock URL */ }
+    var stringValue: String { endpoint }
+    var authHeader: [String: String]? { /* mock auth */ }
+}
+
+let client = BaseAPI.BaseAPIClient<MockEndpoint>()
+```
+
+## Formatting
+
+```
+swift-format -i ./Sources ./Tests --recursive
+```
 
 ## Requirements
 

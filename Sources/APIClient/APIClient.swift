@@ -11,6 +11,7 @@ extension BaseAPI {
             case get = "GET"
             case post = "POST"
             case put = "PUT"
+            case patch = "PATCH"
             case delete = "DELETE"
         }
 
@@ -115,7 +116,7 @@ extension BaseAPI {
             printRequestBody: Bool = false,
             printResponseBody: Bool = false
         ) async throws -> APIResponse<Response> {
-            return try await performRequest(
+            try await performRequest(
                 endpoint: endpoint,
                 method: .post,
                 body: body,
@@ -174,6 +175,106 @@ extension BaseAPI {
                 do {
                     let result = try await put(
                         endpoint, body: body, printRequestBody: printRequestBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
+        // MARK: - PATCH Requests
+
+        public func patch<Request: Encodable>(
+            _ endpoint: Endpoint,
+            body: Request,
+            printRequestBody: Bool = false
+        ) async throws -> HTTPURLResponse {
+            let result: APIResponse<EmptyResponse> = try await performRequest(
+                endpoint: endpoint,
+                method: .patch,
+                body: body,
+                printRequestBody: printRequestBody,
+                printResponseBody: false
+            )
+            return result.response
+        }
+
+        public func patch<Request>(
+            _ endpoint: Endpoint,
+            body: Request,
+            printRequestBody: Bool = false,
+            then callback: @escaping (APIURLResult) -> Void
+        ) where Request: Encodable {
+            Task {
+                do {
+                    let result = try await patch(
+                        endpoint, body: body, printRequestBody: printRequestBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
+        // MARK: - DELETE Requests
+
+        public func delete(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false
+        ) async throws -> HTTPURLResponse {
+            let body: EmptyResponse? = nil
+            let result: APIResponse<EmptyResponse> = try await performRequest(
+                endpoint: endpoint,
+                method: .delete,
+                body: body,
+                printRequestBody: false,
+                printResponseBody: printResponseBody
+            )
+            return result.response
+        }
+
+        public func delete(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false,
+            then callback: @escaping (APIURLResult) -> Void
+        ) {
+            Task {
+                do {
+                    let result = try await delete(
+                        endpoint, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
+        public func delete<Response: Decodable>(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            let body: EmptyResponse? = nil
+            return try await performRequest(
+                endpoint: endpoint,
+                method: .delete,
+                body: body,
+                printRequestBody: false,
+                printResponseBody: printResponseBody
+            )
+        }
+
+        public func delete<Response>(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false,
+            then callback: @escaping (APIResult<Response>) -> Void
+        ) where Response: Decodable {
+            Task {
+                do {
+                    let result: APIResponse<Response> = try await delete(
+                        endpoint, printResponseBody: printResponseBody)
                     callback(.success(result))
                 } catch {
                     let error: APIError = error as? APIError ?? .unknown
@@ -406,8 +507,7 @@ extension BaseAPI {
             return (decodedResponse, httpResponse)
         }
 
-        private func createBaseRequest(endpoint: Endpoint, method: HTTPMethod) throws -> URLRequest
-        {
+        private func createBaseRequest(endpoint: Endpoint, method: HTTPMethod) throws -> URLRequest {
             guard let authHeader = endpoint.authHeader else {
                 throw APIError.missingAuthHeader
             }

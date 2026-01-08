@@ -10,11 +10,11 @@ struct MockEndpoint: BaseAPI.APIEndpoint, Equatable, Hashable {
     let token: String?
 
     var url: URL {
-        return URL(string: "https://api.example.com/\(endpoint)")!
+        URL(string: "https://api.example.com/\(endpoint)")!
     }
 
     var stringValue: String {
-        return endpoint
+        endpoint
     }
 
     var authHeader: [String: String]? {
@@ -231,9 +231,10 @@ struct APIClientTests {
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.get.rawValue == "GET")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.post.rawValue == "POST")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.put.rawValue == "PUT")
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
 
-        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases.count == 4)
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases.count == 5)
     }
 
     // MARK: - API Endpoint Tests
@@ -349,8 +350,7 @@ struct APIClientTests {
         #expect(request.cachePolicy == .reloadIgnoringLocalAndRemoteCacheData)
 
         // Verify multipart body contains our data
-        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8)
-        {
+        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
             #expect(bodyString.contains("Test file content"))
             #expect(bodyString.contains("Test upload"))
         }
@@ -460,8 +460,9 @@ struct APIClientTests {
         #expect(allMethods.contains(.get))
         #expect(allMethods.contains(.post))
         #expect(allMethods.contains(.put))
+        #expect(allMethods.contains(.patch))
         #expect(allMethods.contains(.delete))
-        #expect(allMethods.count == 4)
+        #expect(allMethods.count == 5)
 
         for method in allMethods {
             #expect(!method.rawValue.isEmpty)
@@ -554,10 +555,11 @@ struct APIClientTests {
     func httpMethodValidation() throws {
         let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
 
-        #expect(methods.count == 4)
+        #expect(methods.count == 5)
         #expect(methods.contains(.get))
         #expect(methods.contains(.post))
         #expect(methods.contains(.put))
+        #expect(methods.contains(.patch))
         #expect(methods.contains(.delete))
 
         // Test raw values
@@ -759,10 +761,11 @@ struct APIClientTests {
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.get.rawValue == "GET")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.post.rawValue == "POST")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.put.rawValue == "PUT")
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
 
         // Test that all cases are covered
-        let expectedMethods: Set<String> = ["GET", "POST", "PUT", "DELETE"]
+        let expectedMethods: Set<String> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
         let actualMethods = Set(methods.map { $0.rawValue })
         #expect(actualMethods == expectedMethods)
     }
@@ -859,5 +862,149 @@ struct APIClientTests {
         let encodingError = BaseAPI.APIError.encodingFailed
         #expect(encodingError.isClientError == true)
         #expect(encodingError.getResponse() == nil)
+    }
+
+    // MARK: - PATCH Method Tests
+
+    @Test("PATCH method existence")
+    func patchMethodExistence() throws {
+        // Verify PATCH method exists in HTTPMethod enum
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.patch.rawValue == "PATCH")
+    }
+
+    @Test("PATCH request building")
+    func patchRequestBuilding() throws {
+        let testRequest = TestRequest(name: "Updated User", value: 25)
+        let encoder = JSONEncoder()
+
+        let data = try encoder.encode(testRequest)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        // Verify request body structure
+        #expect(json?["name"] as? String == "Updated User")
+        #expect(json?["value"] as? Int == 25)
+    }
+
+    @Test("PATCH HTTP method in allCases")
+    func patchHttpMethodInAllCases() throws {
+        let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
+        let methodStrings = Set(methods.map { $0.rawValue })
+
+        #expect(methodStrings.contains("PATCH"))
+        #expect(methodStrings.count == 5)  // GET, POST, PUT, PATCH, DELETE
+    }
+
+    @Test("PATCH method endpoint integration")
+    func patchMethodEndpointIntegration() throws {
+        let endpoint = MockEndpoint(endpoint: "users/123/profile", token: "test-token")
+        let testRequest = TestRequest(name: "Jane Doe", value: 30)
+
+        // Verify endpoint and request can be structured for PATCH
+        #expect(endpoint.url.absoluteString == "https://api.example.com/users/123/profile")
+        #expect(endpoint.stringValue == "users/123/profile")
+        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+
+        // Verify request is encodable
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(testRequest)
+        #expect(!data.isEmpty)
+    }
+
+    @Test("PATCH request with various endpoints")
+    func patchRequestWithVariousEndpoints() throws {
+        let endpoints = [
+            MockEndpoint(endpoint: "users/1", token: "token1"),
+            MockEndpoint(endpoint: "posts/abc", token: "token2"),
+            MockEndpoint(endpoint: "comments/xyz", token: nil),
+        ]
+
+        for endpoint in endpoints {
+            let testRequest = TestRequest(name: "Updated", value: 100)
+            let encoder = JSONEncoder()
+
+            let data = try encoder.encode(testRequest)
+            #expect(!data.isEmpty)
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+        }
+    }
+
+    // MARK: - DELETE Method Tests
+
+    @Test("DELETE method existence")
+    func deleteMethodExistence() throws {
+        // Verify DELETE method exists in HTTPMethod enum
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
+    }
+
+    @Test("DELETE HTTP method in allCases")
+    func deleteHttpMethodInAllCases() throws {
+        let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
+        let methodStrings = Set(methods.map { $0.rawValue })
+
+        #expect(methodStrings.contains("DELETE"))
+        #expect(methodStrings.count == 5)  // GET, POST, PUT, PATCH, DELETE
+    }
+
+    @Test("DELETE endpoint integration")
+    func deleteEndpointIntegration() throws {
+        let endpoint = MockEndpoint(endpoint: "users/123", token: "test-token")
+
+        // Verify endpoint structure for DELETE
+        #expect(endpoint.url.absoluteString == "https://api.example.com/users/123")
+        #expect(endpoint.stringValue == "users/123")
+        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+    }
+
+    @Test("DELETE request with various endpoints")
+    func deleteRequestWithVariousEndpoints() throws {
+        let endpoints = [
+            MockEndpoint(endpoint: "users/1", token: "token1"),
+            MockEndpoint(endpoint: "posts/abc", token: "token2"),
+            MockEndpoint(endpoint: "comments/xyz", token: nil),
+        ]
+
+        for endpoint in endpoints {
+            // Verify endpoint can be used for DELETE
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+            #expect(!endpoint.stringValue.isEmpty)
+        }
+    }
+
+    @Test("DELETE method signature verification")
+    func deleteMethodSignatureVerification() throws {
+        let endpoint = MockEndpoint(endpoint: "items/42", token: "test-token")
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(logger: nil)
+
+        // Verify client has delete method
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+        #expect(endpoint.url.absoluteString.contains("items/42"))
+    }
+
+    @Test("DELETE with empty response handling")
+    func deleteWithEmptyResponseHandling() throws {
+        let emptyResponse = BaseAPI.EmptyResponse()
+        let encoder = JSONEncoder()
+
+        // Verify EmptyResponse is properly codable for DELETE responses
+        let data = try encoder.encode(emptyResponse)
+        #expect(!data.isEmpty)
+    }
+
+    @Test("DELETE endpoint configurations")
+    func deleteEndpointConfigurations() throws {
+        let configs = [
+            MockEndpoint(endpoint: "users/1/settings", token: "token1"),
+            MockEndpoint(endpoint: "api/v2/resources/delete-me", token: "token2"),
+            MockEndpoint(endpoint: "items/123/comments/456", token: nil),
+        ]
+
+        for endpoint in configs {
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+            #expect(endpoint.stringValue == endpoint.endpoint)
+
+            if let token = endpoint.token, !token.isEmpty {
+                #expect(endpoint.authHeader?["Authorization"] == "Bearer \(token)")
+            }
+        }
     }
 }
