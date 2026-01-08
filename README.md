@@ -32,7 +32,7 @@ Create an enum conforming to `BaseAPI.APIEndpoint`:
 enum MyAPI: BaseAPI.APIEndpoint {
     case users
     case user(id: String)
-    
+
     var url: URL { /* return endpoint URL */ }
     var stringValue: String { /* return string representation */ }
     var authHeader: [String: String]? { /* return auth headers */ }
@@ -70,7 +70,7 @@ client.get(.user(id: "123")) { (result: BaseAPI.APIResult<User>) in
 
 For a comprehensive implementation example including:
 - Complete API endpoint definitions
-- Data model implementations  
+- Data model implementations
 - Error handling strategies
 - Analytics integration
 - Multipart file uploads
@@ -170,6 +170,12 @@ swift test
 ```
 
 For testing your implementation, create mock endpoints and use dependency injection patterns supported by the client design.
+
+## Formatting
+
+```
+swift-format -i ./Sources ./Tests --recursive
+```
 
 ## Requirements
 
