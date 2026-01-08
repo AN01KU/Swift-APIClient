@@ -218,6 +218,71 @@ extension BaseAPI {
             }
         }
 
+        // MARK: - DELETE Requests
+
+        public func delete(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false
+        ) async throws -> HTTPURLResponse {
+            let body: EmptyResponse? = nil
+            let result: APIResponse<EmptyResponse> = try await performRequest(
+                endpoint: endpoint,
+                method: .delete,
+                body: body,
+                printRequestBody: false,
+                printResponseBody: printResponseBody
+            )
+            return result.response
+        }
+
+        public func delete(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false,
+            then callback: @escaping (APIURLResult) -> Void
+        ) {
+            Task {
+                do {
+                    let result = try await delete(
+                        endpoint, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
+        public func delete<Response: Decodable>(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            let body: EmptyResponse? = nil
+            return try await performRequest(
+                endpoint: endpoint,
+                method: .delete,
+                body: body,
+                printRequestBody: false,
+                printResponseBody: printResponseBody
+            )
+        }
+
+        public func delete<Response>(
+            _ endpoint: Endpoint,
+            printResponseBody: Bool = false,
+            then callback: @escaping (APIResult<Response>) -> Void
+        ) where Response: Decodable {
+            Task {
+                do {
+                    let result: APIResponse<Response> = try await delete(
+                        endpoint, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    let error: APIError = error as? APIError ?? .unknown
+                    callback(.failure(error))
+                }
+            }
+        }
+
         // MARK: - Multipart Upload
 
         public func multipartUpload(

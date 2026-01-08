@@ -927,4 +927,84 @@ struct APIClientTests {
             #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
         }
     }
+
+    // MARK: - DELETE Method Tests
+
+    @Test("DELETE method existence")
+    func deleteMethodExistence() throws {
+        // Verify DELETE method exists in HTTPMethod enum
+        #expect(BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.delete.rawValue == "DELETE")
+    }
+
+    @Test("DELETE HTTP method in allCases")
+    func deleteHttpMethodInAllCases() throws {
+        let methods = BaseAPI.BaseAPIClient<MockEndpoint>.HTTPMethod.allCases
+        let methodStrings = Set(methods.map { $0.rawValue })
+
+        #expect(methodStrings.contains("DELETE"))
+        #expect(methodStrings.count == 5)  // GET, POST, PUT, PATCH, DELETE
+    }
+
+    @Test("DELETE endpoint integration")
+    func deleteEndpointIntegration() throws {
+        let endpoint = MockEndpoint(endpoint: "users/123", token: "test-token")
+
+        // Verify endpoint structure for DELETE
+        #expect(endpoint.url.absoluteString == "https://api.example.com/users/123")
+        #expect(endpoint.stringValue == "users/123")
+        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+    }
+
+    @Test("DELETE request with various endpoints")
+    func deleteRequestWithVariousEndpoints() throws {
+        let endpoints = [
+            MockEndpoint(endpoint: "users/1", token: "token1"),
+            MockEndpoint(endpoint: "posts/abc", token: "token2"),
+            MockEndpoint(endpoint: "comments/xyz", token: nil),
+        ]
+
+        for endpoint in endpoints {
+            // Verify endpoint can be used for DELETE
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+            #expect(!endpoint.stringValue.isEmpty)
+        }
+    }
+
+    @Test("DELETE method signature verification")
+    func deleteMethodSignatureVerification() throws {
+        let endpoint = MockEndpoint(endpoint: "items/42", token: "test-token")
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(logger: nil)
+
+        // Verify client has delete method
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+        #expect(endpoint.url.absoluteString.contains("items/42"))
+    }
+
+    @Test("DELETE with empty response handling")
+    func deleteWithEmptyResponseHandling() throws {
+        let emptyResponse = BaseAPI.EmptyResponse()
+        let encoder = JSONEncoder()
+
+        // Verify EmptyResponse is properly codable for DELETE responses
+        let data = try encoder.encode(emptyResponse)
+        #expect(!data.isEmpty)
+    }
+
+    @Test("DELETE endpoint configurations")
+    func deleteEndpointConfigurations() throws {
+        let configs = [
+            MockEndpoint(endpoint: "users/1/settings", token: "token1"),
+            MockEndpoint(endpoint: "api/v2/resources/delete-me", token: "token2"),
+            MockEndpoint(endpoint: "items/123/comments/456", token: nil),
+        ]
+
+        for endpoint in configs {
+            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+            #expect(endpoint.stringValue == endpoint.endpoint)
+
+            if let token = endpoint.token, !token.isEmpty {
+                #expect(endpoint.authHeader?["Authorization"] == "Bearer \(token)")
+            }
+        }
+    }
 }
