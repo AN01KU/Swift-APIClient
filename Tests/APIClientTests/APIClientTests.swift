@@ -10,11 +10,11 @@ struct MockEndpoint: BaseAPI.APIEndpoint, Equatable, Hashable {
     let token: String?
 
     var url: URL {
-        return URL(string: "https://api.example.com/\(endpoint)")!
+        URL(string: "https://api.example.com/\(endpoint)")!
     }
 
     var stringValue: String {
-        return endpoint
+        endpoint
     }
 
     var authHeader: [String: String]? {
@@ -349,8 +349,7 @@ struct APIClientTests {
         #expect(request.cachePolicy == .reloadIgnoringLocalAndRemoteCacheData)
 
         // Verify multipart body contains our data
-        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8)
-        {
+        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
             #expect(bodyString.contains("Test file content"))
             #expect(bodyString.contains("Test upload"))
         }

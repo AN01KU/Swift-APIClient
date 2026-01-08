@@ -115,7 +115,7 @@ extension BaseAPI {
             printRequestBody: Bool = false,
             printResponseBody: Bool = false
         ) async throws -> APIResponse<Response> {
-            return try await performRequest(
+            try await performRequest(
                 endpoint: endpoint,
                 method: .post,
                 body: body,
@@ -406,8 +406,7 @@ extension BaseAPI {
             return (decodedResponse, httpResponse)
         }
 
-        private func createBaseRequest(endpoint: Endpoint, method: HTTPMethod) throws -> URLRequest
-        {
+        private func createBaseRequest(endpoint: Endpoint, method: HTTPMethod) throws -> URLRequest {
             guard let authHeader = endpoint.authHeader else {
                 throw APIError.missingAuthHeader
             }
