@@ -67,10 +67,11 @@ struct FailingInterceptor: BaseAPI.RequestInterceptor {
 // MARK: - Mock Analytics
 
 final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
-    var analyticsData: [(
-        endpoint: String, method: String, startTime: Date, endTime: Date,
-        success: Bool, statusCode: Int?, error: String?
-    )] = []
+    var analyticsData:
+        [(
+            endpoint: String, method: String, startTime: Date, endTime: Date,
+            success: Bool, statusCode: Int?, error: String?
+        )] = []
 
     func addAnalytics(
         endpoint: String, method: String, startTime: Date, endTime: Date,

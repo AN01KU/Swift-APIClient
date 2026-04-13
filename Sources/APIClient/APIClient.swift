@@ -147,14 +147,17 @@ extension BaseAPI {
                     throw APIError.invalidResponse(response: urlResponse)
                 }
 
-                logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
-                try runValidators(validators, response: httpResponse, data: responseData,
-                                  request: req, endpoint: endpoint)
+                logger?.info(
+                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+                try runValidators(
+                    validators, response: httpResponse, data: responseData,
+                    request: req, endpoint: endpoint)
                 return httpResponse
 
             } catch {
                 let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
-                logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+                logger?.error(
+                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
                 eventMonitor.requestDidFail(
                     URLRequest(url: endpoint.url), endpoint: endpoint.stringValue,
                     method: method.rawValue, error: apiError,

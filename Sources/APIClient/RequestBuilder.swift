@@ -68,7 +68,9 @@ extension BaseAPI {
 
         /// Set the HTTP method. Defaults to `.get`.
         public func method(_ method: BaseAPI.HTTPMethod) -> Self {
-            var copy = self; copy.httpMethod = method; return copy
+            var copy = self
+            copy.httpMethod = method
+            return copy
         }
 
         /// Merge additional headers into the request.
@@ -82,12 +84,16 @@ extension BaseAPI {
 
         /// Set the request body to a JSON-encodable value.
         public func body<T: Encodable & Sendable>(_ value: T) -> Self {
-            var copy = self; copy.body = .json(value); return copy
+            var copy = self
+            copy.body = .json(value)
+            return copy
         }
 
         /// Set the request body to raw bytes with an explicit Content-Type.
         public func body(raw data: Data, contentType: String = "application/json") -> Self {
-            var copy = self; copy.body = .raw(data, contentType: contentType); return copy
+            var copy = self
+            copy.body = .raw(data, contentType: contentType)
+            return copy
         }
 
         /// Set the request body to `application/x-www-form-urlencoded`.
@@ -103,22 +109,30 @@ extension BaseAPI {
         ///     .response(TokenResponse.self)
         /// ```
         public func body(form fields: [String: String]) -> Self {
-            var copy = self; copy.body = .formURL(fields); return copy
+            var copy = self
+            copy.body = .formURL(fields)
+            return copy
         }
 
         /// Override the timeout for this request only (seconds).
         public func timeout(_ seconds: TimeInterval) -> Self {
-            var copy = self; copy.timeoutInterval = seconds; return copy
+            var copy = self
+            copy.timeoutInterval = seconds
+            return copy
         }
 
         /// Override the cache policy for this request only.
         public func cachePolicy(_ policy: URLRequest.CachePolicy) -> Self {
-            var copy = self; copy.cachePolicy = policy; return copy
+            var copy = self
+            copy.cachePolicy = policy
+            return copy
         }
 
         /// Replace the client-level validators with a custom set for this request only.
         public func validators(_ validators: [any ResponseValidator]) -> Self {
-            var copy = self; copy.overrideValidators = validators; return copy
+            var copy = self
+            copy.overrideValidators = validators
+            return copy
         }
 
         // MARK: - Terminal methods

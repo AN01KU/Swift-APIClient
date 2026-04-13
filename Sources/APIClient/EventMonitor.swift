@@ -21,27 +21,36 @@ extension BaseAPI {
             monitors.forEach { $0.requestDidStart(request, endpoint: endpoint, method: method) }
         }
 
-        public func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
-                                     attemptCount: Int, delay: TimeInterval) {
+        public func requestWillRetry(
+            _ request: URLRequest, endpoint: String, method: String,
+            attemptCount: Int, delay: TimeInterval
+        ) {
             monitors.forEach {
-                $0.requestWillRetry(request, endpoint: endpoint, method: method,
-                                    attemptCount: attemptCount, delay: delay)
+                $0.requestWillRetry(
+                    request, endpoint: endpoint, method: method,
+                    attemptCount: attemptCount, delay: delay)
             }
         }
 
-        public func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
-                                     response: HTTPURLResponse, duration: TimeInterval) {
+        public func requestDidFinish(
+            _ request: URLRequest, endpoint: String, method: String,
+            response: HTTPURLResponse, duration: TimeInterval
+        ) {
             monitors.forEach {
-                $0.requestDidFinish(request, endpoint: endpoint, method: method,
-                                    response: response, duration: duration)
+                $0.requestDidFinish(
+                    request, endpoint: endpoint, method: method,
+                    response: response, duration: duration)
             }
         }
 
-        public func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
-                                   error: APIError, duration: TimeInterval) {
+        public func requestDidFail(
+            _ request: URLRequest, endpoint: String, method: String,
+            error: APIError, duration: TimeInterval
+        ) {
             monitors.forEach {
-                $0.requestDidFail(request, endpoint: endpoint, method: method,
-                                  error: error, duration: duration)
+                $0.requestDidFail(
+                    request, endpoint: endpoint, method: method,
+                    error: error, duration: duration)
             }
         }
     }

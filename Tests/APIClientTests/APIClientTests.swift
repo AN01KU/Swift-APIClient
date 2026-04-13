@@ -55,7 +55,9 @@ struct APIClientTests {
             url: URL(string: "https://example.com")!, statusCode: 500,
             httpVersion: nil, headerFields: nil)!
 
-        #expect(BaseAPI.APIError.serverError(response: httpResponse, code: 500, requestID: "123").getResponse() == httpResponse)
+        #expect(
+            BaseAPI.APIError.serverError(response: httpResponse, code: 500, requestID: "123").getResponse()
+                == httpResponse)
         #expect(BaseAPI.APIError.decodingFailed(response: httpResponse, error: "err").getResponse() == httpResponse)
         #expect(BaseAPI.APIError.networkError("fail").getResponse() == nil)
     }
@@ -188,14 +190,22 @@ struct APIClientTests {
         #expect(stringValue.contains("files:"))
         #expect(stringValue.contains("test.txt"))
 
-        #expect(BaseAPI.MultipartData(parameters: nil, fileKeyName: "data", fileURLs: nil).stringValue == "fileKeyName: data")
+        #expect(
+            BaseAPI.MultipartData(parameters: nil, fileKeyName: "data", fileURLs: nil).stringValue
+                == "fileKeyName: data")
     }
 
     @Test("MultipartData edge cases")
     func multipartDataEdgeCases() throws {
-        #expect(BaseAPI.MultipartData(parameters: nil, fileKeyName: "empty", fileURLs: nil).stringValue == "fileKeyName: empty")
-        #expect(BaseAPI.MultipartData(parameters: [:], fileKeyName: "test", fileURLs: nil).stringValue == "fileKeyName: test")
-        #expect(BaseAPI.MultipartData(parameters: nil, fileKeyName: "files", fileURLs: []).stringValue == "fileKeyName: files")
+        #expect(
+            BaseAPI.MultipartData(parameters: nil, fileKeyName: "empty", fileURLs: nil).stringValue
+                == "fileKeyName: empty")
+        #expect(
+            BaseAPI.MultipartData(parameters: [:], fileKeyName: "test", fileURLs: nil).stringValue
+                == "fileKeyName: test")
+        #expect(
+            BaseAPI.MultipartData(parameters: nil, fileKeyName: "files", fileURLs: []).stringValue
+                == "fileKeyName: files")
     }
 
     @Test("EmptyResponse codable")
@@ -251,8 +261,9 @@ struct APIClientTests {
         let testResponse = TestResponse(id: "123", status: "success")
         let encodedData = try encoder.encode(testResponse)
 
-        let decoded = try encodedData.decode(TestResponse.self, decoder: decoder,
-                                             endpoint: "test", method: "GET")
+        let decoded = try encodedData.decode(
+            TestResponse.self, decoder: decoder,
+            endpoint: "test", method: "GET")
         #expect(decoded.id == "123")
         #expect(decoded.status == "success")
 
@@ -364,10 +375,12 @@ struct APIClientTests {
         let startTime = Date()
         let endTime = Date().addingTimeInterval(0.5)
 
-        analytics.addAnalytics(endpoint: "/api/users", method: "GET", startTime: startTime,
-                                endTime: endTime, success: true, statusCode: 200, error: nil)
-        analytics.addAnalytics(endpoint: "/api/users", method: "POST", startTime: startTime,
-                                endTime: endTime, success: false, statusCode: 422, error: "Validation failed")
+        analytics.addAnalytics(
+            endpoint: "/api/users", method: "GET", startTime: startTime,
+            endTime: endTime, success: true, statusCode: 200, error: nil)
+        analytics.addAnalytics(
+            endpoint: "/api/users", method: "POST", startTime: startTime,
+            endTime: endTime, success: false, statusCode: 422, error: "Validation failed")
 
         #expect(analytics.analyticsData.count == 2)
         #expect(analytics.analyticsData[0].success == true)
@@ -449,7 +462,9 @@ struct APIClientTests {
 
     @Test("MockInterceptor adapts request with headers")
     func mockInterceptorAdaptsRequest() async throws {
-        let interceptor = MockInterceptor(additionalHeaders: ["Authorization": "Bearer my-token", "X-API-Key": "key-123"])
+        let interceptor = MockInterceptor(additionalHeaders: [
+            "Authorization": "Bearer my-token", "X-API-Key": "key-123",
+        ])
         var request = URLRequest(url: URL(string: "https://example.com")!)
         request = try await interceptor.adapt(request)
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer my-token")
@@ -513,7 +528,9 @@ struct APIClientTests {
 
     @Test("InterceptorChain stops at first failing interceptor")
     func interceptorChainStopsAtFailure() async {
-        let chain = BaseAPI.InterceptorChain([FailingInterceptor(), MockInterceptor(additionalHeaders: ["X-Ran": "yes"])])
+        let chain = BaseAPI.InterceptorChain([
+            FailingInterceptor(), MockInterceptor(additionalHeaders: ["X-Ran": "yes"]),
+        ])
         let request = URLRequest(url: URL(string: "https://example.com")!)
         do {
             _ = try await chain.adapt(request)
@@ -527,20 +544,25 @@ struct APIClientTests {
 
     @Test("RetryDecision doNotRetry")
     func retryDecisionDoNotRetry() {
-        if case .doNotRetry = BaseAPI.RetryDecision.doNotRetry { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        if case .doNotRetry = BaseAPI.RetryDecision.doNotRetry { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryDecision retry with delay")
     func retryDecisionRetryWithDelay() {
-        if case .retry(let delay) = BaseAPI.RetryDecision.retry(delay: 2.5) { #expect(delay == 2.5) }
-        else { #expect(Bool(false)) }
+        if case .retry(let delay) = BaseAPI.RetryDecision.retry(delay: 2.5) {
+            #expect(delay == 2.5)
+        } else {
+            #expect(Bool(false))
+        }
     }
 
     @Test("RetryDecision retry with zero delay")
     func retryDecisionRetryZeroDelay() {
-        if case .retry(let delay) = BaseAPI.RetryDecision.retry(delay: 0) { #expect(delay == 0) }
-        else { #expect(Bool(false)) }
+        if case .retry(let delay) = BaseAPI.RetryDecision.retry(delay: 0) {
+            #expect(delay == 0)
+        } else {
+            #expect(Bool(false))
+        }
     }
 
     @Test("Default retry implementation returns doNotRetry")
@@ -548,8 +570,7 @@ struct APIClientTests {
         let decision = await MockInterceptor(additionalHeaders: [:]).retry(
             URLRequest(url: URL(string: "https://example.com")!),
             dueTo: BaseAPI.APIError.unknown, attemptCount: 1)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("InterceptorChain retry returns doNotRetry when no interceptor retries")
@@ -558,8 +579,7 @@ struct APIClientTests {
         let decision = await chain.retry(
             URLRequest(url: URL(string: "https://example.com")!),
             dueTo: BaseAPI.APIError.unknown, attemptCount: 1)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("InterceptorChain retry returns first retry decision")
@@ -575,8 +595,7 @@ struct APIClientTests {
         let decision = await chain.retry(
             URLRequest(url: URL(string: "https://example.com")!),
             dueTo: BaseAPI.APIError.unknown, attemptCount: 1)
-        if case .retry(let delay) = decision { #expect(delay == 1.0) }
-        else { #expect(Bool(false)) }
+        if case .retry(let delay) = decision { #expect(delay == 1.0) } else { #expect(Bool(false)) }
     }
 
     // MARK: - Client Interceptors Array Tests
@@ -592,7 +611,8 @@ struct APIClientTests {
 
     @Test("Client initialises with empty interceptors array")
     func clientInitializesWithEmptyInterceptors() throws {
-        #expect(type(of: BaseAPI.BaseAPIClient<MockEndpoint>(interceptors: [])) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+        #expect(
+            type(of: BaseAPI.BaseAPIClient<MockEndpoint>(interceptors: [])) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
     }
 
     @Test("Single-interceptor convenience init is equivalent to array init")
@@ -610,7 +630,8 @@ struct APIClientTests {
         let validator = BaseAPI.StatusCodeValidator()
         let request = URLRequest(url: URL(string: "https://example.com")!)
         for code in [200, 201, 204, 299] {
-            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
             try validator.validate(response, data: Data(), for: request)
         }
     }
@@ -620,13 +641,17 @@ struct APIClientTests {
         let validator = BaseAPI.StatusCodeValidator()
         let request = URLRequest(url: URL(string: "https://example.com")!)
         for code in [400, 401, 404, 422, 500] {
-            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
             do {
                 try validator.validate(response, data: Data(), for: request)
                 #expect(Bool(false), "Should have thrown for \(code)")
             } catch let error as BaseAPI.APIError {
-                if case .serverError(_, let errorCode, _) = error { #expect(errorCode == code) }
-                else { #expect(Bool(false)) }
+                if case .serverError(_, let errorCode, _) = error {
+                    #expect(errorCode == code)
+                } else {
+                    #expect(Bool(false))
+                }
             }
         }
     }
@@ -635,13 +660,18 @@ struct APIClientTests {
     func statusCodeValidatorIncludesRequestId() throws {
         let validator = BaseAPI.StatusCodeValidator()
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: ["x-request-id": "req-abc-123"])!
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil,
+            headerFields: ["x-request-id": "req-abc-123"])!
         do {
             try validator.validate(response, data: Data(), for: request)
             #expect(Bool(false))
         } catch let error as BaseAPI.APIError {
-            if case .serverError(_, _, let requestID) = error { #expect(requestID == "req-abc-123") }
-            else { #expect(Bool(false)) }
+            if case .serverError(_, _, let requestID) = error {
+                #expect(requestID == "req-abc-123")
+            } else {
+                #expect(Bool(false))
+            }
         }
     }
 
@@ -649,13 +679,17 @@ struct APIClientTests {
     func statusCodeValidatorFallbackRequestId() throws {
         let validator = BaseAPI.StatusCodeValidator()
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 404, httpVersion: nil, headerFields: nil)!
         do {
             try validator.validate(response, data: Data(), for: request)
             #expect(Bool(false))
         } catch let error as BaseAPI.APIError {
-            if case .serverError(_, _, let requestID) = error { #expect(requestID == "N/A") }
-            else { #expect(Bool(false)) }
+            if case .serverError(_, _, let requestID) = error {
+                #expect(requestID == "N/A")
+            } else {
+                #expect(Bool(false))
+            }
         }
     }
 
@@ -664,7 +698,8 @@ struct APIClientTests {
         let validator = BaseAPI.AcceptedStatusCodesValidator([200, 201, 304])
         let request = URLRequest(url: URL(string: "https://example.com")!)
         for code in [200, 201, 304] {
-            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
             try validator.validate(response, data: Data(), for: request)
         }
     }
@@ -674,7 +709,8 @@ struct APIClientTests {
         let validator = BaseAPI.AcceptedStatusCodesValidator([200, 201])
         let request = URLRequest(url: URL(string: "https://example.com")!)
         for code in [204, 400, 500] {
-            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
             #expect(throws: (any Error).self) { try validator.validate(response, data: Data(), for: request) }
         }
     }
@@ -683,9 +719,11 @@ struct APIClientTests {
     func acceptedStatusCodesValidatorSingleCode() throws {
         let validator = BaseAPI.AcceptedStatusCodesValidator([200])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let ok = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        let ok = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         try validator.validate(ok, data: Data(), for: request)
-        let notOk = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 201, httpVersion: nil, headerFields: nil)!
+        let notOk = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 201, httpVersion: nil, headerFields: nil)!
         #expect(throws: (any Error).self) { try validator.validate(notOk, data: Data(), for: request) }
     }
 
@@ -700,14 +738,17 @@ struct APIClientTests {
             }
         }
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         try NoOpValidator().validate(response, data: Data(), for: request)
         #expect(throws: (any Error).self) { try AlwaysFailValidator().validate(response, data: Data(), for: request) }
     }
 
     @Test("Client init with custom validators")
     func clientInitWithCustomValidators() throws {
-        let client = BaseAPI.BaseAPIClient<MockEndpoint>(validators: [BaseAPI.AcceptedStatusCodesValidator([200, 201, 204])])
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(validators: [
+            BaseAPI.AcceptedStatusCodesValidator([200, 201, 204])
+        ])
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
     }
 
@@ -757,46 +798,54 @@ struct APIClientTests {
     func retryPolicyRetriesOnRetryableStatusCodes() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .none, retryableStatusCodes: [500, 503])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
-        let decision = await policy.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 1)
-        if case .retry(let delay) = decision { #expect(delay == 0) }
-        else { #expect(Bool(false)) }
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+        let decision = await policy.retry(
+            request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 1
+        )
+        if case .retry(let delay) = decision { #expect(delay == 0) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy does not retry on non-retryable status codes")
     func retryPolicySkipsNonRetryableStatusCodes() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, retryableStatusCodes: [500])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 404, httpVersion: nil, headerFields: nil)!
-        let decision = await policy.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: 404, requestID: "x"), attemptCount: 1)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+        let decision = await policy.retry(
+            request, dueTo: BaseAPI.APIError.serverError(response: response, code: 404, requestID: "x"), attemptCount: 1
+        )
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy stops after maxAttempts")
     func retryPolicyStopsAtMaxAttempts() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, retryableStatusCodes: [500])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
-        let decision = await policy.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 3)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+        let decision = await policy.retry(
+            request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 3
+        )
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy retries network errors when retryNetworkErrors is true")
     func retryPolicyRetriesNetworkErrors() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(1), retryNetworkErrors: true)
-        let decision = await policy.retry(URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"), attemptCount: 1)
-        if case .retry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        let decision = await policy.retry(
+            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            attemptCount: 1)
+        if case .retry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy does not retry network errors by default")
     func retryPolicySkipsNetworkErrorsByDefault() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3)
-        let decision = await policy.retry(URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"), attemptCount: 1)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        let decision = await policy.retry(
+            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            attemptCount: 1)
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy.adapt is a no-op pass-through")
@@ -814,10 +863,16 @@ struct APIClientTests {
         let policy = BaseAPI.RetryPolicy()
         let request = URLRequest(url: URL(string: "https://example.com")!)
         for code in [429, 500, 502, 503, 504] {
-            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
-            let decision = await policy.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: code, requestID: "x"), attemptCount: 1)
-            if case .retry = decision { #expect(Bool(true)) }
-            else { #expect(Bool(false), "Expected retry for \(code)") }
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code, httpVersion: nil, headerFields: nil)!
+            let decision = await policy.retry(
+                request, dueTo: BaseAPI.APIError.serverError(response: response, code: code, requestID: "x"),
+                attemptCount: 1)
+            if case .retry = decision {
+                #expect(Bool(true))
+            } else {
+                #expect(Bool(false), "Expected retry for \(code)")
+            }
         }
     }
 
@@ -825,17 +880,21 @@ struct APIClientTests {
     func retryPolicyMinAttempts() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 0)
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
-        let decision = await policy.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 1)
-        if case .doNotRetry = decision { #expect(Bool(true)) }
-        else { #expect(Bool(false)) }
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+        let decision = await policy.retry(
+            request, dueTo: BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x"), attemptCount: 1
+        )
+        if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
 
     @Test("RetryPolicy uses exponential backoff delay")
     func retryPolicyExponentialDelay() async {
-        let policy = BaseAPI.RetryPolicy(maxAttempts: 5, backoff: .exponential(base: 1, multiplier: 2, maxDelay: 60), retryableStatusCodes: [500])
+        let policy = BaseAPI.RetryPolicy(
+            maxAttempts: 5, backoff: .exponential(base: 1, multiplier: 2, maxDelay: 60), retryableStatusCodes: [500])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500, httpVersion: nil, headerFields: nil)!
         let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
 
         let d1 = await policy.retry(request, dueTo: error, attemptCount: 1)
@@ -853,10 +912,12 @@ struct APIClientTests {
             BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(0.5), retryableStatusCodes: [503]),
         ])
         let request = URLRequest(url: URL(string: "https://example.com")!)
-        let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 503, httpVersion: nil, headerFields: nil)!
-        let decision = await chain.retry(request, dueTo: BaseAPI.APIError.serverError(response: response, code: 503, requestID: "x"), attemptCount: 1)
-        if case .retry(let delay) = decision { #expect(delay == 0.5) }
-        else { #expect(Bool(false)) }
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 503, httpVersion: nil, headerFields: nil)!
+        let decision = await chain.retry(
+            request, dueTo: BaseAPI.APIError.serverError(response: response, code: 503, requestID: "x"), attemptCount: 1
+        )
+        if case .retry(let delay) = decision { #expect(delay == 0.5) } else { #expect(Bool(false)) }
     }
 
     @Test("Client initialises with RetryPolicy in interceptors array")

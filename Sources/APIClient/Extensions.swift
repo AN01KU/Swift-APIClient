@@ -1,6 +1,7 @@
 import Foundation
+
 #if canImport(UniformTypeIdentifiers)
-import UniformTypeIdentifiers
+    import UniformTypeIdentifiers
 #endif
 
 // MARK: - URLRequest Extensions
@@ -110,7 +111,8 @@ extension Dictionary where Key == String, Value == String {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "+&=")
 
-        let pairs = self
+        let pairs =
+            self
             .sorted { $0.key < $1.key }
             .compactMap { key, value -> String? in
                 guard
@@ -129,14 +131,14 @@ extension Dictionary where Key == String, Value == String {
 
 /// Type-erasing wrapper that lets `JSONEncoder` encode an `any Encodable` value.
 struct AnyEncodable: Encodable {
-    private let _encode: (Encoder) throws -> Void
+    private let encodeBody: (Encoder) throws -> Void
 
     init(_ value: any Encodable) {
-        self._encode = { try value.encode(to: $0) }
+        self.encodeBody = { try value.encode(to: $0) }
     }
 
     func encode(to encoder: Encoder) throws {
-        try _encode(encoder)
+        try encodeBody(encoder)
     }
 }
 
@@ -145,11 +147,11 @@ struct AnyEncodable: Encodable {
 extension URLSession {
     class func mimeTypeForPath(_ pathExtension: String) -> String {
         #if canImport(UniformTypeIdentifiers)
-        if let utType = UTType(filenameExtension: pathExtension),
-            let mimeType = utType.preferredMIMEType
-        {
-            return mimeType
-        }
+            if let utType = UTType(filenameExtension: pathExtension),
+                let mimeType = utType.preferredMIMEType
+            {
+                return mimeType
+            }
         #endif
         return "application/octet-stream"
     }

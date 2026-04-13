@@ -47,7 +47,9 @@ extension BaseAPI {
     }
 
     /// Protocol for analytics tracking of API operations
-    @available(*, deprecated, renamed: "RequestEventMonitor", message: "Use RequestEventMonitor for richer lifecycle events.")
+    @available(
+        *, deprecated, renamed: "RequestEventMonitor", message: "Use RequestEventMonitor for richer lifecycle events."
+    )
     public protocol APIAnalytics: Sendable {
         func addAnalytics(
             endpoint: String,
@@ -69,16 +71,19 @@ extension BaseAPI {
         func requestDidStart(_ request: URLRequest, endpoint: String, method: String)
 
         /// Called before each retry attempt (not before the first attempt).
-        func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
-                              attemptCount: Int, delay: TimeInterval)
+        func requestWillRetry(
+            _ request: URLRequest, endpoint: String, method: String,
+            attemptCount: Int, delay: TimeInterval)
 
         /// Called when a response is successfully received and validated.
-        func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
-                              response: HTTPURLResponse, duration: TimeInterval)
+        func requestDidFinish(
+            _ request: URLRequest, endpoint: String, method: String,
+            response: HTTPURLResponse, duration: TimeInterval)
 
         /// Called when the request fails without being retried further.
-        func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
-                            error: APIError, duration: TimeInterval)
+        func requestDidFail(
+            _ request: URLRequest, endpoint: String, method: String,
+            error: APIError, duration: TimeInterval)
     }
 
     /// Decision returned by an interceptor's retry handler.
@@ -94,12 +99,18 @@ extension BaseAPI {
 
 extension BaseAPI.RequestEventMonitor {
     public func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {}
-    public func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
-                                 attemptCount: Int, delay: TimeInterval) {}
-    public func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
-                                 response: HTTPURLResponse, duration: TimeInterval) {}
-    public func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
-                               error: BaseAPI.APIError, duration: TimeInterval) {}
+    public func requestWillRetry(
+        _ request: URLRequest, endpoint: String, method: String,
+        attemptCount: Int, delay: TimeInterval
+    ) {}
+    public func requestDidFinish(
+        _ request: URLRequest, endpoint: String, method: String,
+        response: HTTPURLResponse, duration: TimeInterval
+    ) {}
+    public func requestDidFail(
+        _ request: URLRequest, endpoint: String, method: String,
+        error: BaseAPI.APIError, duration: TimeInterval
+    ) {}
 }
 
 // MARK: - RequestInterceptor Defaults
@@ -121,7 +132,8 @@ extension BaseAPI.APIEndpoint {
             resolvingAgainstBaseURL: false
         )
         if let queryParameters, !queryParameters.isEmpty {
-            components?.queryItems = queryParameters
+            components?.queryItems =
+                queryParameters
                 .sorted { $0.key < $1.key }
                 .map { URLQueryItem(name: $0.key, value: $0.value) }
         }

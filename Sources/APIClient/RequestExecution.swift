@@ -33,34 +33,44 @@ extension BaseAPI.BaseAPIClient {
                     throw BaseAPI.APIError.invalidResponse(response: urlResponse)
                 }
 
-                logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+                logger?.info(
+                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
 
-                try runValidators(validators, response: httpResponse, data: data,
-                                  request: request, endpoint: endpoint)
+                try runValidators(
+                    validators, response: httpResponse, data: data,
+                    request: request, endpoint: endpoint)
 
                 let decoded: Response
                 do {
-                    decoded = try data.decode(Response.self, decoder: decoder,
-                                              endpoint: endpoint.stringValue, method: method.rawValue)
+                    decoded = try data.decode(
+                        Response.self, decoder: decoder,
+                        endpoint: endpoint.stringValue, method: method.rawValue)
                 } catch {
-                    let apiError = BaseAPI.APIError.decodingFailed(response: httpResponse, error: error.localizedDescription)
-                    logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "")")
-                    eventMonitor.requestDidFail(request, endpoint: endpoint.stringValue,
-                                                method: method.rawValue, error: apiError,
-                                                duration: Date().timeIntervalSince(startTime))
+                    let apiError = BaseAPI.APIError.decodingFailed(
+                        response: httpResponse, error: error.localizedDescription)
+                    logger?.error(
+                        "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "")"
+                    )
+                    eventMonitor.requestDidFail(
+                        request, endpoint: endpoint.stringValue,
+                        method: method.rawValue, error: apiError,
+                        duration: Date().timeIntervalSince(startTime))
                     throw apiError
                 }
 
-                eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
-                                              method: method.rawValue, response: httpResponse,
-                                              duration: Date().timeIntervalSince(startTime))
+                eventMonitor.requestDidFinish(
+                    request, endpoint: endpoint.stringValue,
+                    method: method.rawValue, response: httpResponse,
+                    duration: Date().timeIntervalSince(startTime))
                 return (decoded, httpResponse)
 
             } catch {
-                guard let apiError = try await handleRetry(
-                    error, endpoint: endpoint, method: method,
-                    attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
-                ) else { continue }
+                guard
+                    let apiError = try await handleRetry(
+                        error, endpoint: endpoint, method: method,
+                        attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
+                    )
+                else { continue }
                 throw apiError
             }
         }
@@ -93,21 +103,26 @@ extension BaseAPI.BaseAPIClient {
                     throw BaseAPI.APIError.invalidResponse(response: urlResponse)
                 }
 
-                logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+                logger?.info(
+                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
 
-                try runValidators(validators, response: httpResponse, data: data,
-                                  request: request, endpoint: endpoint)
+                try runValidators(
+                    validators, response: httpResponse, data: data,
+                    request: request, endpoint: endpoint)
 
-                eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
-                                              method: method.rawValue, response: httpResponse,
-                                              duration: Date().timeIntervalSince(startTime))
+                eventMonitor.requestDidFinish(
+                    request, endpoint: endpoint.stringValue,
+                    method: method.rawValue, response: httpResponse,
+                    duration: Date().timeIntervalSince(startTime))
                 return (data, httpResponse)
 
             } catch {
-                guard let apiError = try await handleRetry(
-                    error, endpoint: endpoint, method: method,
-                    attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
-                ) else { continue }
+                guard
+                    let apiError = try await handleRetry(
+                        error, endpoint: endpoint, method: method,
+                        attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
+                    )
+                else { continue }
                 throw apiError
             }
         }
@@ -135,8 +150,9 @@ extension BaseAPI.BaseAPIClient {
                         throw BaseAPI.APIError.invalidResponse(response: urlResponse)
                     }
 
-                    try runValidators(validators, response: httpResponse, data: Data(),
-                                      request: request, endpoint: endpoint)
+                    try runValidators(
+                        validators, response: httpResponse, data: Data(),
+                        request: request, endpoint: endpoint)
 
                     let totalBytes = httpResponse.value(forHTTPHeaderField: "Content-Length")
                         .flatMap { Int64($0) }
@@ -144,27 +160,31 @@ extension BaseAPI.BaseAPIClient {
                     var accumulated = Data()
                     for try await byte in asyncBytes {
                         accumulated.append(byte)
-                        continuation.yield(BaseAPI.DownloadProgress(
-                            bytesReceived: Int64(accumulated.count),
-                            totalBytesExpected: totalBytes,
-                            data: nil,
-                            response: httpResponse
-                        ))
+                        continuation.yield(
+                            BaseAPI.DownloadProgress(
+                                bytesReceived: Int64(accumulated.count),
+                                totalBytesExpected: totalBytes,
+                                data: nil,
+                                response: httpResponse
+                            ))
                     }
 
-                    continuation.yield(BaseAPI.DownloadProgress(
-                        bytesReceived: Int64(accumulated.count),
-                        totalBytesExpected: totalBytes,
-                        data: accumulated,
-                        response: httpResponse
-                    ))
-                    eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
-                                                  method: method.rawValue, response: httpResponse,
-                                                  duration: Date().timeIntervalSince(startTime))
+                    continuation.yield(
+                        BaseAPI.DownloadProgress(
+                            bytesReceived: Int64(accumulated.count),
+                            totalBytesExpected: totalBytes,
+                            data: accumulated,
+                            response: httpResponse
+                        ))
+                    eventMonitor.requestDidFinish(
+                        request, endpoint: endpoint.stringValue,
+                        method: method.rawValue, response: httpResponse,
+                        duration: Date().timeIntervalSince(startTime))
                     continuation.finish()
 
                 } catch {
-                    let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
+                    let apiError =
+                        error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
                     eventMonitor.requestDidFail(
                         URLRequest(url: builder.endpoint.url),
                         endpoint: builder.endpoint.stringValue,
@@ -198,13 +218,15 @@ extension BaseAPI.BaseAPIClient {
             let result = try await session.data(for: request)
 
             if let httpResponse = result.1 as? HTTPURLResponse {
-                logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+                logger?.info(
+                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
             }
             return result
 
         } catch {
             let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
-            logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+            logger?.error(
+                "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
             throw apiError
         }
     }
@@ -233,12 +255,15 @@ extension BaseAPI.BaseAPIClient {
             do {
                 try validator.validate(response, data: data, for: request)
             } catch {
-                let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.serverError(
-                    response: response,
-                    code: response.statusCode,
-                    requestID: response.value(forHTTPHeaderField: "x-request-id") ?? "N/A"
-                )
-                logger?.error("\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "Validation failed")")
+                let apiError =
+                    error as? BaseAPI.APIError
+                    ?? BaseAPI.APIError.serverError(
+                        response: response,
+                        code: response.statusCode,
+                        requestID: response.value(forHTTPHeaderField: "x-request-id") ?? "N/A"
+                    )
+                logger?.error(
+                    "\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "Validation failed")")
                 throw apiError
             }
         }
@@ -246,7 +271,8 @@ extension BaseAPI.BaseAPIClient {
 
     // MARK: - Private Helpers
 
-    private func applyBuilderOverrides(_ builder: BaseAPI.RequestBuilder<Endpoint>, to request: inout URLRequest) throws {
+    private func applyBuilderOverrides(_ builder: BaseAPI.RequestBuilder<Endpoint>, to request: inout URLRequest) throws
+    {
         if let timeout = builder.timeoutInterval { request.timeoutInterval = timeout }
         if let policy = builder.cachePolicy { request.cachePolicy = policy }
         for (key, value) in builder.additionalHeaders { request.setValue(value, forHTTPHeaderField: key) }
@@ -280,23 +306,29 @@ extension BaseAPI.BaseAPIClient {
         startTime: Date
     ) async throws -> BaseAPI.APIError? {
         let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
-        let decision = await interceptorChain.retry(URLRequest(url: endpoint.url),
-                                                    dueTo: apiError, attemptCount: attemptCount)
+        let decision = await interceptorChain.retry(
+            URLRequest(url: endpoint.url),
+            dueTo: apiError, attemptCount: attemptCount)
         switch decision {
         case .retry(let delay):
-            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s")
+            logger?.info(
+                "\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s"
+            )
             let req = firstRequest ?? URLRequest(url: endpoint.url)
-            eventMonitor.requestWillRetry(req, endpoint: endpoint.stringValue,
-                                          method: method.rawValue,
-                                          attemptCount: attemptCount, delay: delay)
+            eventMonitor.requestWillRetry(
+                req, endpoint: endpoint.stringValue,
+                method: method.rawValue,
+                attemptCount: attemptCount, delay: delay)
             if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
             return nil
         case .doNotRetry:
-            logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+            logger?.error(
+                "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
             let req = firstRequest ?? URLRequest(url: endpoint.url)
-            eventMonitor.requestDidFail(req, endpoint: endpoint.stringValue,
-                                        method: method.rawValue, error: apiError,
-                                        duration: Date().timeIntervalSince(startTime))
+            eventMonitor.requestDidFail(
+                req, endpoint: endpoint.stringValue,
+                method: method.rawValue, error: apiError,
+                duration: Date().timeIntervalSince(startTime))
             return apiError
         }
     }

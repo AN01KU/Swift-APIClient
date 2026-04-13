@@ -26,7 +26,8 @@ struct NetworkTests {
             let c = makeClient { req in
                 (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let (result, _): BaseAPI.APIResponse<TestResponse> = try await c
+            let (result, _): BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "items", token: nil))
                 .response()
             #expect(result.id == "b1")
@@ -41,7 +42,8 @@ struct NetworkTests {
                 await capturedMethod.set(req.httpMethod)
                 return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .method(.post)
                 .response()
@@ -57,7 +59,8 @@ struct NetworkTests {
                 await capturedBody.set(req.httpBody)
                 return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .method(.post)
                 .body(TestRequest(name: "alice", value: 1))
@@ -78,9 +81,12 @@ struct NetworkTests {
             let c = makeClient { req in
                 await capturedBody.set(req.httpBody)
                 await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .method(.put)
                 .body(raw: raw, contentType: "text/plain")
@@ -98,7 +104,8 @@ struct NetworkTests {
                 await capturedHeader.set(req.value(forHTTPHeaderField: "X-Trace-ID"))
                 return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .headers(["X-Trace-ID": "abc123"])
                 .response()
@@ -116,7 +123,8 @@ struct NetworkTests {
                 await capturedB.set(req.value(forHTTPHeaderField: "X-B"))
                 return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .headers(["X-A": "1"])
                 .headers(["X-B": "2"])
@@ -134,7 +142,8 @@ struct NetworkTests {
                 await capturedTimeout.set(req.timeoutInterval)
                 return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .timeout(42)
                 .response()
@@ -148,7 +157,8 @@ struct NetworkTests {
             let c = makeClient { req in
                 (data, HTTPURLResponse(url: req.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!)
             }
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "x", token: nil))
                 .validators([BaseAPI.AcceptedStatusCodesValidator([201])])
                 .response()
@@ -160,7 +170,8 @@ struct NetworkTests {
                 (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
             do {
-                let _: BaseAPI.APIResponse<TestResponse> = try await c
+                let _: BaseAPI.APIResponse<TestResponse> =
+                    try await c
                     .request(MockEndpoint(endpoint: "x", token: nil))
                     .validators([BaseAPI.AcceptedStatusCodesValidator([201])])
                     .response()
@@ -177,10 +188,13 @@ struct NetworkTests {
         @Test("responseURL returns HTTPURLResponse without decoding body")
         func builderResponseURL() async throws {
             let c = makeClient { req in
-                (Data("{\"unexpected\":true}".utf8),
-                 HTTPURLResponse(url: req.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!)
+                (
+                    Data("{\"unexpected\":true}".utf8),
+                    HTTPURLResponse(url: req.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                )
             }
-            let httpResponse = try await c
+            let httpResponse =
+                try await c
                 .request(MockEndpoint(endpoint: "del", token: nil))
                 .method(.delete)
                 .validators([BaseAPI.AcceptedStatusCodesValidator([204])])
@@ -194,7 +208,8 @@ struct NetworkTests {
             let c = makeClient { req in
                 (raw, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
-            let (data, _) = try await c
+            let (data, _) =
+                try await c
                 .request(MockEndpoint(endpoint: "file", token: nil))
                 .responseData()
             #expect(data == raw)
@@ -206,7 +221,8 @@ struct NetworkTests {
                 (Data(), HTTPURLResponse(url: req.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
             }
             do {
-                let _: BaseAPI.APIResponse<TestResponse> = try await c
+                let _: BaseAPI.APIResponse<TestResponse> =
+                    try await c
                     .request(MockEndpoint(endpoint: "missing", token: nil))
                     .response()
                 #expect(Bool(false), "Should have thrown")
@@ -231,7 +247,8 @@ struct NetworkTests {
                 sessionConfiguration: mockSessionConfiguration(),
                 eventMonitors: [monitor]
             )
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "em", token: nil))
                 .response()
             #expect(monitor.starts.count == 1)
@@ -245,7 +262,8 @@ struct NetworkTests {
                 (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
             do {
-                let _: BaseAPI.APIResponse<TestResponse> = try await c
+                let _: BaseAPI.APIResponse<TestResponse> =
+                    try await c
                     .request(MockEndpoint(endpoint: "x", token: nil))
                     .method(.post)
                     .body(UnencodableBody())
@@ -265,10 +283,10 @@ struct NetworkTests {
             }
             let base = c.request(MockEndpoint(endpoint: "x", token: nil))
             let withPost = base.method(.post)
-            let withGet  = base.method(.get)
+            let withGet = base.method(.get)
             #expect(withPost.httpMethod == .post)
-            #expect(withGet.httpMethod  == .get)
-            #expect(base.httpMethod     == .get)
+            #expect(withGet.httpMethod == .get)
+            #expect(base.httpMethod == .get)
         }
     }
 
@@ -292,11 +310,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                      httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "auth/token", token: nil))
                 .method(.post)
                 .body(form: ["grant_type": "client_credentials"])
@@ -313,11 +336,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedBody.set(req.httpBody)
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                      httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "token", token: nil))
                 .method(.post)
                 .body(form: ["grant_type": "client_credentials"])
@@ -336,11 +364,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedBody.set(req.httpBody)
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                      httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "token", token: nil))
                 .method(.post)
                 .body(form: ["scope": "read write", "grant_type": "password", "username": "alice"])
@@ -359,11 +392,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedBody.set(req.httpBody)
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                      httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "search", token: nil))
                 .method(.post)
                 .body(form: ["q": "hello world&foo=bar"])
@@ -382,11 +420,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
-                return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                      httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let _: BaseAPI.APIResponse<TestResponse> = try await c
+            let _: BaseAPI.APIResponse<TestResponse> =
+                try await c
                 .request(MockEndpoint(endpoint: "token", token: nil))
                 .method(.post)
                 .body(form: [:])
@@ -402,11 +445,16 @@ struct NetworkTests {
 
             let c = makeClient { req in
                 await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
-                return (raw, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                             httpVersion: nil, headerFields: nil)!)
+                return (
+                    raw,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
 
-            let (data, _) = try await c
+            let (data, _) =
+                try await c
                 .request(MockEndpoint(endpoint: "submit", token: nil))
                 .method(.post)
                 .body(form: ["key": "value"])
@@ -421,20 +469,27 @@ struct NetworkTests {
             let payload = TestResponse(id: "imm", status: "ok")
             let data = try JSONEncoder().encode(payload)
             let c = makeClient { req in
-                (data, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                       httpVersion: nil, headerFields: nil)!)
+                (
+                    data,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
             let base = c.request(MockEndpoint(endpoint: "x", token: nil)).method(.post)
             let withForm = base.body(form: ["a": "1"])
             let withJSON = base.body(TestRequest(name: "n", value: 0))
 
-            if case .formURL = withForm.body { } else {
+            if case .formURL = withForm.body {
+            } else {
                 #expect(Bool(false), "Expected .formURL on withForm")
             }
-            if case .json = withJSON.body { } else {
+            if case .json = withJSON.body {
+            } else {
                 #expect(Bool(false), "Expected .json on withJSON")
             }
-            if case .none = base.body { } else {
+            if case .none = base.body {
+            } else {
                 #expect(Bool(false), "Expected .none on base")
             }
         }
@@ -460,8 +515,11 @@ struct NetworkTests {
 
             let c = client { request in
                 await capturedBodyRef.set(request.httpBody)
-                return (responseData, HTTPURLResponse(
-                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
 
             let raw = try JSONEncoder().encode(TestRequest(name: "replay", value: 7))
@@ -481,8 +539,11 @@ struct NetworkTests {
 
             let c = client { request in
                 await capturedBodyRef.set(request.httpBody)
-                return (responseData, HTTPURLResponse(
-                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
 
             let raw = try JSONEncoder().encode(TestRequest(name: "update", value: 3))
@@ -502,8 +563,11 @@ struct NetworkTests {
 
             let c = client { request in
                 await capturedBodyRef.set(request.httpBody)
-                return (responseData, HTTPURLResponse(
-                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
 
             let raw = try JSONEncoder().encode(TestRequest(name: "partial", value: 1))
@@ -518,8 +582,11 @@ struct NetworkTests {
         @Test("post(rawBody:) propagates server error")
         func postRawBodyPropagatesError() async throws {
             let c = client { request in
-                return (Data(), HTTPURLResponse(
-                    url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!)
+                (
+                    Data(),
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!
+                )
             }
             let raw = Data("{}".utf8)
             do {
@@ -543,8 +610,11 @@ struct NetworkTests {
 
             let c = client { request in
                 await capturedHeaderRef.set(request.value(forHTTPHeaderField: "Content-Type"))
-                return (responseData, HTTPURLResponse(
-                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    responseData,
+                    HTTPURLResponse(
+                        url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
 
             let raw = Data("{}".utf8)
@@ -571,22 +641,30 @@ struct NetworkTests {
             func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {
                 starts.append((endpoint, method))
             }
-            func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
-                                  attemptCount: Int, delay: TimeInterval) {
+            func requestWillRetry(
+                _ request: URLRequest, endpoint: String, method: String,
+                attemptCount: Int, delay: TimeInterval
+            ) {
                 retries.append((endpoint, attemptCount, delay))
             }
-            func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
-                                  response: HTTPURLResponse, duration: TimeInterval) {
+            func requestDidFinish(
+                _ request: URLRequest, endpoint: String, method: String,
+                response: HTTPURLResponse, duration: TimeInterval
+            ) {
                 finishes.append((endpoint, response.statusCode, duration))
             }
-            func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
-                                error: BaseAPI.APIError, duration: TimeInterval) {
+            func requestDidFail(
+                _ request: URLRequest, endpoint: String, method: String,
+                error: BaseAPI.APIError, duration: TimeInterval
+            ) {
                 failures.append((endpoint, error, duration))
             }
         }
 
-        private func makeClient(monitor: BaseAPI.RequestEventMonitor,
-                                handler: @escaping MockURLProtocol.Handler)
+        private func makeClient(
+            monitor: BaseAPI.RequestEventMonitor,
+            handler: @escaping MockURLProtocol.Handler
+        )
             -> BaseAPI.BaseAPIClient<MockEndpoint>
         {
             MockURLProtocol.handler = handler
@@ -673,9 +751,15 @@ struct NetworkTests {
             MockURLProtocol.handler = { request in
                 callCount += 1
                 if callCount == 1 {
-                    return (Data(), HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!)
+                    return (
+                        Data(),
+                        HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!
+                    )
                 }
-                return (successData, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                return (
+                    successData,
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
             }
             let c = BaseAPI.BaseAPIClient<MockEndpoint>(
                 sessionConfiguration: mockSessionConfiguration(),
@@ -788,7 +872,8 @@ struct NetworkTests {
             let c = makeClient(responseData: content)
 
             var finalData: Data?
-            for try await progress in c
+            for try await progress
+                in c
                 .request(MockEndpoint(endpoint: "file", token: nil))
                 .download()
             {
@@ -881,8 +966,12 @@ struct NetworkTests {
             let content = Data("monitored".utf8)
 
             MockURLProtocol.handler = { req in
-                (content, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                          httpVersion: nil, headerFields: nil)!)
+                (
+                    content,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
             let c = BaseAPI.BaseAPIClient<MockEndpoint>(
                 sessionConfiguration: mockSessionConfiguration(),
@@ -901,8 +990,12 @@ struct NetworkTests {
             let monitor = EventMonitorTests.RecordingMonitor()
 
             MockURLProtocol.handler = { req in
-                (Data(), HTTPURLResponse(url: req.url!, statusCode: 500,
-                                         httpVersion: nil, headerFields: nil)!)
+                (
+                    Data(),
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 500,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
             let c = BaseAPI.BaseAPIClient<MockEndpoint>(
                 sessionConfiguration: mockSessionConfiguration(),
@@ -923,12 +1016,17 @@ struct NetworkTests {
 
             MockURLProtocol.handler = { req in
                 await capturedHeader.set(req.value(forHTTPHeaderField: "X-Download-Token"))
-                return (content, HTTPURLResponse(url: req.url!, statusCode: 200,
-                                                 httpVersion: nil, headerFields: nil)!)
+                return (
+                    content,
+                    HTTPURLResponse(
+                        url: req.url!, statusCode: 200,
+                        httpVersion: nil, headerFields: nil)!
+                )
             }
             let c = BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
 
-            for try await _ in c
+            for try await _
+                in c
                 .request(MockEndpoint(endpoint: "file", token: nil))
                 .headers(["X-Download-Token": "secret"])
                 .download()
