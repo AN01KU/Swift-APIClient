@@ -237,8 +237,7 @@ extension BaseAPI {
 
             do {
                 var req = try await createBaseRequest(endpoint: endpoint, method: method)
-                try req.addMultipartData(data: data, logger: logger,
-                                         endpoint: endpoint.stringValue, method: method.rawValue)
+                try req.addMultipartData(data: data)
 
                 let (responseData, urlResponse) = try await session.data(for: req)
 

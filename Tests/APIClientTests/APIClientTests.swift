@@ -285,9 +285,7 @@ struct APIClientTests {
         let encoder = JSONEncoder()
         let logger = MockLogger()
 
-        try request.addJSONBody(
-            TestRequest(name: "Test", value: 42), encoder: encoder, printRequestBody: false,
-            logger: logger, endpoint: "test", method: "POST")
+        try request.addJSONBody(TestRequest(name: "Test", value: 42), encoder: encoder)
 
         #expect(request.httpBody != nil)
         if let bodyData = request.httpBody {
@@ -298,8 +296,7 @@ struct APIClientTests {
 
         var request2 = URLRequest(url: URL(string: "https://example.com")!)
         let nilBody: TestRequest? = nil
-        try request2.addJSONBody(nilBody, encoder: encoder, printRequestBody: false,
-                                  logger: nil, endpoint: "test", method: "POST")
+        try request2.addJSONBody(nilBody, encoder: encoder)
         #expect(request2.httpBody == nil)
     }
 
@@ -314,9 +311,7 @@ struct APIClientTests {
             parameters: ["description": "Test upload"] as [String: AnyObject],
             fileKeyName: "file", fileURLs: [tempURL])
 
-        try request.addMultipartData(
-            data: multipartData, printRequestBody: false, logger: MockLogger(),
-            endpoint: "upload", method: "POST")
+        try request.addMultipartData(data: multipartData)
 
         #expect(request.httpBody != nil)
         #expect(request.value(forHTTPHeaderField: "Content-Type")?.contains("multipart/form-data") == true)

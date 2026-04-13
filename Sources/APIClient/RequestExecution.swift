@@ -193,8 +193,7 @@ extension BaseAPI.BaseAPIClient {
 
         do {
             var request = try await createBaseRequest(endpoint: endpoint, method: method)
-            try request.addJSONBody(body, encoder: encoder,
-                                    logger: logger, endpoint: endpoint.stringValue, method: method.rawValue)
+            try request.addJSONBody(body, encoder: encoder)
 
             let result = try await session.data(for: request)
 

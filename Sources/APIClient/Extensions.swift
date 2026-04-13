@@ -17,37 +17,16 @@ extension URLRequest {
         }
     }
 
-    mutating func addJSONBody<T: Encodable>(
-        _ body: T?,
-        encoder: JSONEncoder,
-        printRequestBody: Bool = false,
-        logger: BaseAPI.APIClientLoggingProtocol?,
-        endpoint: String,
-        method: String
-    ) throws {
+    mutating func addJSONBody<T: Encodable>(_ body: T?, encoder: JSONEncoder) throws {
         guard let body = body else { return }
-
         do {
-            let payload = try encoder.encode(body)
-            httpBody = payload
-
-            if printRequestBody {
-                if let decodedString = String(data: payload, encoding: .utf8) {
-                    logger?.info("\(method):\(endpoint) REQUEST | body string: \(decodedString)")
-                }
-            }
+            httpBody = try encoder.encode(body)
         } catch {
             throw BaseAPI.APIError.encodingFailed
         }
     }
 
-    mutating func addMultipartData(
-        data: BaseAPI.MultipartData,
-        printRequestBody: Bool = false,
-        logger: BaseAPI.APIClientLoggingProtocol?,
-        endpoint: String,
-        method: String
-    ) throws {
+    mutating func addMultipartData(data: BaseAPI.MultipartData) throws {
         let boundary = "Boundary-\(UUID().uuidString)"
 
         setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -56,10 +35,6 @@ extension URLRequest {
 
         do {
             httpBody = try createMultipartBody(data: data, boundary: boundary)
-            if printRequestBody {
-                let stringValue = data.stringValue
-                logger?.info("\(method):\(endpoint) REQUEST | body string: \(stringValue)")
-            }
         } catch {
             throw BaseAPI.APIError.encodingFailed
         }
@@ -114,25 +89,12 @@ extension Data {
     func decode<T: Decodable>(
         _ type: T.Type,
         decoder: JSONDecoder,
-        printResponseBody: Bool = false,
-        logger: BaseAPI.APIClientLoggingProtocol? = nil,
         endpoint: String = "",
         method: String = ""
     ) throws -> T {
-        // Handle empty response
-        if isEmpty {
-            if T.self == BaseAPI.EmptyResponse.self {
-                return BaseAPI.EmptyResponse() as! T
-            }
+        if isEmpty, T.self == BaseAPI.EmptyResponse.self {
+            return BaseAPI.EmptyResponse() as! T
         }
-
-        if printResponseBody {
-            if let decodedString = String(data: self, encoding: .utf8) {
-                logger?.info(
-                    "\(method):\(endpoint) REQUEST | responseData string: \(decodedString)")
-            }
-        }
-
         return try decoder.decode(type, from: self)
     }
 }
