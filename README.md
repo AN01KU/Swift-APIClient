@@ -4,7 +4,7 @@ A type-safe, async/await HTTP client for Swift. Built on `URLSession`, designed 
 
 ## Requirements
 
-- Swift 5.10+
+- Swift 6.0+
 - macOS 12+ / iOS 15+ / tvOS 15+ / watchOS 8+ / visionOS 1+
 
 ## Installation
@@ -28,6 +28,7 @@ The package is namespaced under `BaseAPI` to avoid polluting the global scope. T
 | `BaseAPI.RequestInterceptor` | Mutate outgoing requests; optionally retry on failure |
 | `BaseAPI.ResponseValidator` | Validate responses before decoding |
 | `BaseAPI.RequestEventMonitor` | Observe request lifecycle events |
+| `BaseAPI.MultipartFormData` | Builder for multipart/form-data uploads |
 
 ## Quick Start
 
@@ -66,7 +67,7 @@ let client = BaseAPI.BaseAPIClient<GitHubAPI>()
 ### 3. Make requests
 
 ```swift
-struct GitHubUser: Decodable {
+struct GitHubUser: Decodable, Sendable {
     let login: String
     let publicRepos: Int
 }
@@ -106,14 +107,9 @@ let (body, _): BaseAPI.APIResponse<DeleteResult> = try await client.delete(.user
 
 // Raw Data body
 let (result, _): BaseAPI.APIResponse<Result> = try await client.post(.ingest, rawBody: data)
-
-// Multipart upload
-let http: HTTPURLResponse = try await client.multipartUpload(
-    .upload,
-    method: .post,
-    data: BaseAPI.MultipartData(fileKeyName: "file", fileURLs: [fileURL])
-)
 ```
+
+Supported HTTP methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`.
 
 ## RequestBuilder
 
@@ -134,6 +130,16 @@ let (token, _): BaseAPI.APIResponse<TokenResponse> = try await client
     .method(.post)
     .body(form: ["grant_type": "client_credentials", "scope": "read"])
     .response()
+
+// Multipart upload via builder
+let http: HTTPURLResponse = try await client
+    .request(.upload)
+    .method(.post)
+    .body(multipart: { form in
+        form.append(profileData, name: "avatar", fileName: "photo.jpg", mimeType: "image/jpeg")
+        try form.append(fileURL: resumeURL, name: "resume")
+    })
+    .responseURL()
 ```
 
 Available terminal methods on `RequestBuilder`:
@@ -144,6 +150,35 @@ Available terminal methods on `RequestBuilder`:
 | `.responseURL()` | `HTTPURLResponse` — ignores body |
 | `.responseData()` | `APIResponse<Data>` — raw bytes |
 | `.download()` | `AsyncThrowingStream<DownloadProgress, Error>` |
+
+## Multipart Uploads
+
+`MultipartFormData` supports three kinds of parts:
+
+```swift
+let http: HTTPURLResponse = try await client
+    .request(.upload)
+    .method(.post)
+    .body(multipart: { form in
+        // 1. In-memory Data (plain field)
+        form.append("alice".data(using: .utf8)!, name: "username")
+
+        // 2. In-memory Data with filename and MIME type (file upload)
+        form.append(jpegData, name: "avatar", fileName: "photo.jpg", mimeType: "image/jpeg")
+
+        // 3. File URL — filename and MIME type inferred from the URL
+        try form.append(fileURL: videoURL, name: "video")
+
+        // 4. File URL with explicit filename and MIME type
+        try form.append(fileURL: tmpURL, name: "file", fileName: "export.csv", mimeType: "text/csv")
+
+        // 5. InputStream with explicit length
+        form.append(stream, length: UInt64(byteCount), name: "data", fileName: "blob.bin", mimeType: "application/octet-stream")
+    })
+    .responseURL()
+```
+
+The closure receives a `MultipartFormData` instance. Append all fields before the closure returns. The boundary is fixed at creation time, so the identical body is sent on every retry attempt.
 
 ## Interceptors
 
@@ -182,6 +217,17 @@ let client = BaseAPI.BaseAPIClient<MyAPI>(
 ```
 
 `BackoffStrategy` options: `.none`, `.constant(_:)`, `.exponential(base:multiplier:maxDelay:)`.
+
+To retry on network errors (e.g. offline, timeout) in addition to server errors:
+
+```swift
+BaseAPI.RetryPolicy(
+    maxAttempts: 3,
+    backoff: .exponential(base: 1, multiplier: 2, maxDelay: 30),
+    retryableStatusCodes: [500, 503],
+    retryNetworkErrors: true
+)
+```
 
 ## Response Validators
 
@@ -260,7 +306,7 @@ All methods throw `BaseAPI.APIError`:
 ```swift
 public enum APIError: Error {
     case encodingFailed
-    case networkError(String)
+    case networkError(URLError)
     case invalidResponse(response: URLResponse)
     case serverError(response: HTTPURLResponse, code: Int, requestID: String)
     case decodingFailed(response: HTTPURLResponse, error: String)
@@ -268,7 +314,7 @@ public enum APIError: Error {
 }
 ```
 
-`.serverError` carries the `x-request-id` response header when present. Both `.serverError` and `.decodingFailed` expose the original `HTTPURLResponse` via `.getResponse()` for callers that need to inspect headers on failure.
+`.networkError` preserves the underlying `URLError` so callers can inspect `URLError.Code` (e.g. `.notConnectedToInternet`, `.timedOut`). `.serverError` carries the `x-request-id` response header when present. Both `.serverError` and `.decodingFailed` expose the original `HTTPURLResponse` via `.getResponse()`.
 
 ```swift
 do {
@@ -279,8 +325,10 @@ do {
         logger.error("HTTP \(code), request-id: \(requestID)")
     case .decodingFailed(let response, let description):
         logger.error("Decode failed for \(response.url?.path ?? ""): \(description)")
-    case .networkError(let message):
-        logger.error("Network: \(message)")
+    case .networkError(let urlError):
+        if urlError.code == .notConnectedToInternet {
+            showOfflineBanner()
+        }
     default:
         break
     }
@@ -289,7 +337,7 @@ do {
 
 ## Unauthorized Handling
 
-Pass an `unauthorizedHandler` to be called synchronously on any 401 before the error is thrown — useful for triggering a logout or a token refresh flow that operates outside the interceptor chain:
+Pass an `unauthorizedHandler` to be called when a 401 response is the **final outcome** (after all retry attempts have been exhausted). Use it to trigger logout or route to a re-authentication flow.
 
 ```swift
 let client = BaseAPI.BaseAPIClient<MyAPI>(
@@ -298,6 +346,26 @@ let client = BaseAPI.BaseAPIClient<MyAPI>(
     }
 )
 ```
+
+The handler does **not** fire during intermediate retry attempts — if your interceptor retries on 401 (e.g. to refresh a token) and eventually succeeds, the handler is never called.
+
+## Logging
+
+Inject any `APIClientLoggingProtocol` conformer at init. The package ships a concrete `APIClientLogger` backed by `os.Logger`:
+
+```swift
+// Default — logs to Console.app under subsystem "APIClient", category "Network"
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    logger: APIClientLogger()
+)
+
+// Custom subsystem/category
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    logger: APIClientLogger(subsystem: "com.myapp", category: "API")
+)
+```
+
+Roll your own by conforming to `BaseAPI.APIClientLoggingProtocol`.
 
 ## Subclassing
 
@@ -320,18 +388,21 @@ final class GitHubClient: BaseAPI.BaseAPIClient<GitHubAPI> {
 The client uses standard `URLSession`, so intercept at the `URLProtocol` level — no wrapper or interface needed:
 
 ```swift
-class MockURLProtocol: URLProtocol {
-    static var handler: ((URLRequest) -> (Data, HTTPURLResponse))?
+final class MockURLProtocol: URLProtocol {
+    typealias Handler = @Sendable (URLRequest) async -> (Data, HTTPURLResponse)
+    nonisolated(unsafe) static var handler: Handler?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         guard let handler = MockURLProtocol.handler else { return }
-        let (data, response) = handler(request)
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        Task {
+            let (data, response) = await handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
     override func stopLoading() {}
