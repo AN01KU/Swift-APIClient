@@ -64,23 +64,6 @@ struct FailingInterceptor: BaseAPI.RequestInterceptor {
     }
 }
 
-// MARK: - Mock Analytics
-
-final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
-    var analyticsData:
-        [(
-            endpoint: String, method: String, startTime: Date, endTime: Date,
-            success: Bool, statusCode: Int?, error: String?
-        )] = []
-
-    func addAnalytics(
-        endpoint: String, method: String, startTime: Date, endTime: Date,
-        success: Bool, statusCode: Int?, error: String?
-    ) {
-        analyticsData.append((endpoint, method, startTime, endTime, success, statusCode, error))
-    }
-}
-
 // MARK: - MockURLProtocol
 
 /// URLProtocol subclass that intercepts requests and calls a handler closure.

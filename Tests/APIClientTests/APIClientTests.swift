@@ -25,8 +25,7 @@ struct APIClientTests {
     @Test("BaseAPIClient initialization with dependencies")
     func baseAPIClientInitializationWithDependencies() throws {
         let logger = MockLogger()
-        let analytics = MockAnalytics()
-        let client = BaseAPI.BaseAPIClient<MockEndpoint>(analytics: analytics, logger: logger)
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(logger: logger)
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
     }
 
@@ -437,28 +436,6 @@ struct APIClientTests {
         #expect(BaseAPI.HTTPMethod.allCases.count == 7)
     }
 
-    // MARK: - Analytics Tests
-
-    @Test("Analytics data tracking")
-    func analyticsDataTracking() throws {
-        let analytics = MockAnalytics()
-        let startTime = Date()
-        let endTime = Date().addingTimeInterval(0.5)
-
-        analytics.addAnalytics(
-            endpoint: "/api/users", method: "GET", startTime: startTime,
-            endTime: endTime, success: true, statusCode: 200, error: nil)
-        analytics.addAnalytics(
-            endpoint: "/api/users", method: "POST", startTime: startTime,
-            endTime: endTime, success: false, statusCode: 422, error: "Validation failed")
-
-        #expect(analytics.analyticsData.count == 2)
-        #expect(analytics.analyticsData[0].success == true)
-        #expect(analytics.analyticsData[0].statusCode == 200)
-        #expect(analytics.analyticsData[1].success == false)
-        #expect(analytics.analyticsData[1].error == "Validation failed")
-    }
-
     // MARK: - BaseAPIClient Configuration Tests
 
     @Test("BaseAPIClient custom configuration")
@@ -477,7 +454,6 @@ struct APIClientTests {
             sessionConfiguration: sessionConfig,
             encoder: encoder,
             decoder: decoder,
-            analytics: MockAnalytics(),
             logger: MockLogger(),
             unauthorizedHandler: { _ in Task { await unauthorizedCount.set(await unauthorizedCount.value + 1) } }
         )

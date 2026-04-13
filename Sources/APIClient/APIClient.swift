@@ -6,6 +6,9 @@ extension BaseAPI {
     ///
     /// Parameterized on a concrete ``APIEndpoint`` type. Subclass or instantiate directly.
     /// All network execution is delegated to ``RequestExecution``.
+    ///
+    /// `@unchecked Sendable` because `JSONEncoder` and `JSONDecoder` lack `Sendable` conformance,
+    /// though all stored properties are set once at init and never mutated thereafter.
     open class BaseAPIClient<Endpoint: APIEndpoint>: @unchecked Sendable {
 
         // MARK: - Properties
@@ -16,8 +19,6 @@ extension BaseAPI {
         let interceptorChain: InterceptorChain
         let validators: [any ResponseValidator]
         let eventMonitor: EventMonitorGroup
-        @available(*, deprecated, renamed: "eventMonitors")
-        let analytics: (any APIAnalytics)?
         let logger: (any APIClientLoggingProtocol)?
         let unauthorizedHandler: (@Sendable (Endpoint) -> Void)?
 
@@ -37,7 +38,6 @@ extension BaseAPI {
             interceptors: [any RequestInterceptor] = [],
             validators: [any ResponseValidator] = [StatusCodeValidator()],
             eventMonitors: [any RequestEventMonitor] = [],
-            analytics: (any APIAnalytics)? = nil,
             logger: (any APIClientLoggingProtocol)? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -47,7 +47,6 @@ extension BaseAPI {
             self.interceptorChain = InterceptorChain(interceptors)
             self.validators = validators
             self.eventMonitor = EventMonitorGroup(eventMonitors)
-            self.analytics = analytics
             self.logger = logger
             self.unauthorizedHandler = unauthorizedHandler
         }
@@ -60,7 +59,6 @@ extension BaseAPI {
             interceptor: (any RequestInterceptor)?,
             validators: [any ResponseValidator] = [StatusCodeValidator()],
             eventMonitors: [any RequestEventMonitor] = [],
-            analytics: (any APIAnalytics)? = nil,
             logger: (any APIClientLoggingProtocol)? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -71,7 +69,6 @@ extension BaseAPI {
                 interceptors: interceptor.map { [$0] } ?? [],
                 validators: validators,
                 eventMonitors: eventMonitors,
-                analytics: analytics,
                 logger: logger,
                 unauthorizedHandler: unauthorizedHandler
             )
