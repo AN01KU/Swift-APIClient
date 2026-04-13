@@ -1036,6 +1036,54 @@ struct NetworkTests {
         }
     }
 
+    // MARK: - Multipart Builder Tests
+
+    @Suite("Multipart Builder Tests")
+    struct MultipartBuilderTests {
+
+        @Test("builder .body(multipart:) sends multipart Content-Type")
+        func builderMultipartSendsCorrectContentType() async throws {
+            let capturedContentType = ActorBox<String?>(nil)
+            MockURLProtocol.handler = { req in
+                await capturedContentType.set(req.value(forHTTPHeaderField: "Content-Type"))
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration())
+            let multipartData = BaseAPI.MultipartData(parameters: nil, fileKeyName: "file", fileURLs: nil)
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: multipartData)
+                .responseURL()
+            let ct = await capturedContentType.value
+            #expect(ct?.contains("multipart/form-data") == true)
+        }
+
+        @Test("builder .body(multipart:) goes through retry logic")
+        func builderMultipartParticipatesInRetry() async throws {
+            let attemptCount = ActorBox<Int>(0)
+            MockURLProtocol.handler = { req in
+                await attemptCount.set(await attemptCount.value + 1)
+                let count = await attemptCount.value
+                let status = count < 2 ? 500 : 200
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            }
+            let retryPolicy = BaseAPI.RetryPolicy(
+                maxAttempts: 3, backoff: .constant(0), retryableStatusCodes: [500])
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                interceptors: [retryPolicy])
+            let multipartData = BaseAPI.MultipartData(parameters: nil, fileKeyName: "file", fileURLs: nil)
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: multipartData)
+                .responseURL()
+            #expect(await attemptCount.value == 2)
+        }
+    }
+
     // MARK: - Unauthorized Handler Tests
 
     @Suite("Unauthorized Handler Tests")

@@ -287,6 +287,8 @@ extension BaseAPI.BaseAPIClient {
         case .raw(let data, let contentType):
             request.httpBody = data
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        case .multipart(let data):
+            try request.addMultipartData(data: data)
         case .none:
             break
         }

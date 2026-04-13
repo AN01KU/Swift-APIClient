@@ -12,6 +12,8 @@ extension BaseAPI {
         case formURL([String: String])
         /// Send raw bytes as-is (e.g. pre-serialized JSON, binary payloads).
         case raw(Data, contentType: String = "application/json")
+        /// Multipart form-data upload.
+        case multipart(MultipartData)
         /// No body.
         case none
 
@@ -111,6 +113,13 @@ extension BaseAPI {
         public func body(form fields: [String: String]) -> Self {
             var copy = self
             copy.body = .formURL(fields)
+            return copy
+        }
+
+        /// Set the request body to multipart form-data.
+        public func body(multipart data: MultipartData) -> Self {
+            var copy = self
+            copy.body = .multipart(data)
             return copy
         }
 

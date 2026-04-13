@@ -129,6 +129,7 @@ extension BaseAPI {
 
         // MARK: - Multipart Upload
 
+        @available(*, deprecated, message: "Use request(_:).method(_:).body(multipart:).responseURL() instead.")
         public func multipartUpload(
             _ endpoint: Endpoint,
             method: BaseAPI.HTTPMethod,
