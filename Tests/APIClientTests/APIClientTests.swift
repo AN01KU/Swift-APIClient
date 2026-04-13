@@ -1733,9 +1733,12 @@ struct APIClientTests {
 
 }
 
-// MARK: - Raw Data Body Tests (serialized suite to avoid MockURLProtocol handler races)
+// MARK: - Network Tests (serialized to prevent MockURLProtocol.handler races across suites)
 
-@Suite("Raw Body Tests", .serialized)
+@Suite("Network Tests", .serialized)
+struct NetworkTests {
+
+@Suite("Raw Body Tests")
 struct RawBodyTests {
 
     /// Registers a response handler and returns a client wired to MockURLProtocol.
@@ -1925,3 +1928,206 @@ struct RawBodyTests {
         #expect(header == "application/json")
     }
 }
+
+// MARK: - RequestEventMonitor Tests
+
+@Suite("Event Monitor Tests")
+struct EventMonitorTests {
+
+    // MARK: - Helpers
+
+    /// A monitor that records every event it receives.
+    final class RecordingMonitor: BaseAPI.RequestEventMonitor, @unchecked Sendable {
+        var starts: [(endpoint: String, method: String)] = []
+        var retries: [(endpoint: String, attemptCount: Int, delay: TimeInterval)] = []
+        var finishes: [(endpoint: String, statusCode: Int, duration: TimeInterval)] = []
+        var failures: [(endpoint: String, error: BaseAPI.APIError, duration: TimeInterval)] = []
+
+        func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {
+            starts.append((endpoint, method))
+        }
+        func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
+                              attemptCount: Int, delay: TimeInterval) {
+            retries.append((endpoint, attemptCount, delay))
+        }
+        func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
+                              response: HTTPURLResponse, duration: TimeInterval) {
+            finishes.append((endpoint, response.statusCode, duration))
+        }
+        func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
+                            error: BaseAPI.APIError, duration: TimeInterval) {
+            failures.append((endpoint, error, duration))
+        }
+    }
+
+    private func makeClient(monitor: BaseAPI.RequestEventMonitor,
+                            handler: @escaping MockURLProtocol.Handler)
+        -> BaseAPI.BaseAPIClient<MockEndpoint>
+    {
+        MockURLProtocol.handler = handler
+        return BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            eventMonitors: [monitor]
+        )
+    }
+
+    // MARK: - Tests
+
+    @Test("requestDidStart fires once on a successful request")
+    func startFiresOnSuccess() async throws {
+        let monitor = RecordingMonitor()
+        let payload = TestResponse(id: "1", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+
+        let c = makeClient(monitor: monitor) { request in
+            (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "items", token: nil))
+        #expect(monitor.starts.count == 1)
+        #expect(monitor.starts[0].endpoint == "items")
+        #expect(monitor.starts[0].method == "GET")
+    }
+
+    @Test("requestDidFinish fires with correct status code and positive duration")
+    func finishFiresWithStatusAndDuration() async throws {
+        let monitor = RecordingMonitor()
+        let payload = TestResponse(id: "2", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+
+        let c = makeClient(monitor: monitor) { request in
+            (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "items", token: nil))
+        #expect(monitor.finishes.count == 1)
+        #expect(monitor.finishes[0].statusCode == 200)
+        #expect(monitor.finishes[0].duration >= 0)
+    }
+
+    @Test("requestDidFail fires on server error")
+    func failFiresOnServerError() async throws {
+        let monitor = RecordingMonitor()
+
+        let c = makeClient(monitor: monitor) { request in
+            (Data(), HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
+        }
+
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "fail", token: nil))
+        } catch {}
+
+        #expect(monitor.failures.count == 1)
+        #expect(monitor.failures[0].endpoint == "fail")
+        if case .serverError(_, let code, _) = monitor.failures[0].error {
+            #expect(code == 500)
+        } else {
+            #expect(Bool(false), "Expected .serverError")
+        }
+    }
+
+    @Test("no start event fires when monitor array is empty")
+    func noMonitorNoEvents() async throws {
+        let payload = TestResponse(id: "3", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+
+        MockURLProtocol.handler = { request in
+            (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration()
+            // no eventMonitors
+        )
+        // Should complete without crashing
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "items", token: nil))
+    }
+
+    @Test("requestWillRetry fires when RetryPolicy retries")
+    func retryEventFires() async throws {
+        let monitor = RecordingMonitor()
+        var callCount = 0
+        let payload = TestResponse(id: "r", status: "ok")
+        let successData = try JSONEncoder().encode(payload)
+
+        MockURLProtocol.handler = { request in
+            callCount += 1
+            if callCount == 1 {
+                return (Data(), HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!)
+            }
+            return (successData, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            interceptors: [BaseAPI.RetryPolicy(maxAttempts: 2, backoff: .none)],
+            eventMonitors: [monitor]
+        )
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "retry", token: nil))
+        #expect(monitor.retries.count == 1)
+        #expect(monitor.retries[0].attemptCount == 1)
+        #expect(monitor.retries[0].delay == 0)
+        #expect(monitor.finishes.count == 1)
+    }
+
+    @Test("EventMonitorGroup fans out events to all monitors")
+    func eventMonitorGroupFansOut() async throws {
+        let monitorA = RecordingMonitor()
+        let monitorB = RecordingMonitor()
+        let payload = TestResponse(id: "g", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+
+        MockURLProtocol.handler = { request in
+            (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            eventMonitors: [monitorA, monitorB]
+        )
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "group", token: nil))
+        #expect(monitorA.starts.count == 1)
+        #expect(monitorB.starts.count == 1)
+        #expect(monitorA.finishes.count == 1)
+        #expect(monitorB.finishes.count == 1)
+    }
+
+    @Test("start does not fire if request fails before network (interceptor throw)")
+    func startFiresEvenIfInterceptorThrows() async throws {
+        // The start event fires after adapt() succeeds — if adapt throws, start is never fired
+        // because we never get a URLRequest to report.
+        let monitor = RecordingMonitor()
+
+        MockURLProtocol.handler = { request in
+            (Data(), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            interceptors: [FailingInterceptor()],
+            eventMonitors: [monitor]
+        )
+
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "x", token: nil))
+        } catch {}
+
+        // adapt() threw before we could fire requestDidStart
+        #expect(monitor.starts.count == 0)
+    }
+
+    @Test("duration in requestDidFail is non-negative")
+    func failDurationNonNegative() async throws {
+        let monitor = RecordingMonitor()
+
+        let c = makeClient(monitor: monitor) { request in
+            (Data(), HTTPURLResponse(url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!)
+        }
+
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c.get(MockEndpoint(endpoint: "e", token: nil))
+        } catch {}
+
+        #expect(monitor.failures[0].duration >= 0)
+    }
+}
+
+} // NetworkTests

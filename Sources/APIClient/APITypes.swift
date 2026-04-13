@@ -64,6 +64,7 @@ public enum BaseAPI {
     }
 
     /// Protocol for analytics tracking of API operations
+    @available(*, deprecated, renamed: "RequestEventMonitor", message: "Use RequestEventMonitor for richer lifecycle events.")
     public protocol APIAnalytics: Sendable {
         func addAnalytics(
             endpoint: String,
@@ -74,6 +75,37 @@ public enum BaseAPI {
             statusCode: Int?,
             error: String?
         )
+    }
+
+    /// Observer protocol for fine-grained request lifecycle events.
+    ///
+    /// Every method has a default no-op implementation — conform and override only the
+    /// events you care about. Multiple monitors can be composed with ``EventMonitorGroup``.
+    ///
+    /// Example — measuring latency:
+    /// ```swift
+    /// struct LatencyMonitor: BaseAPI.RequestEventMonitor {
+    ///     func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
+    ///                           response: HTTPURLResponse, duration: TimeInterval) {
+    ///         print("\(method) \(endpoint) → \(response.statusCode) in \(duration * 1000)ms")
+    ///     }
+    /// }
+    /// ```
+    public protocol RequestEventMonitor: Sendable {
+        /// Called once, just before the first network attempt.
+        func requestDidStart(_ request: URLRequest, endpoint: String, method: String)
+
+        /// Called before each retry attempt (not before the first attempt).
+        func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
+                              attemptCount: Int, delay: TimeInterval)
+
+        /// Called when a response is successfully received and validated.
+        func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
+                              response: HTTPURLResponse, duration: TimeInterval)
+
+        /// Called when the request fails without being retried further.
+        func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
+                            error: APIError, duration: TimeInterval)
     }
 
     // MARK: - Error Types
@@ -154,6 +186,66 @@ public enum BaseAPI {
     /// Empty response type for requests that don't return data
     public struct EmptyResponse: Codable {
         public init() {}
+    }
+}
+
+// MARK: - RequestEventMonitor Defaults
+
+extension BaseAPI.RequestEventMonitor {
+    public func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {}
+    public func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
+                                 attemptCount: Int, delay: TimeInterval) {}
+    public func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
+                                 response: HTTPURLResponse, duration: TimeInterval) {}
+    public func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
+                               error: BaseAPI.APIError, duration: TimeInterval) {}
+}
+
+// MARK: - EventMonitorGroup
+
+extension BaseAPI {
+    /// Fans out lifecycle events to multiple ``RequestEventMonitor`` instances.
+    ///
+    /// Pass it to ``BaseAPIClient``'s `eventMonitors` parameter to compose monitors:
+    /// ```swift
+    /// BaseAPI.BaseAPIClient<MyAPI>(
+    ///     eventMonitors: [LatencyMonitor(), AnalyticsMonitor()]
+    /// )
+    /// ```
+    public struct EventMonitorGroup: RequestEventMonitor {
+        private let monitors: [any RequestEventMonitor]
+
+        public init(_ monitors: [any RequestEventMonitor]) {
+            self.monitors = monitors
+        }
+
+        public func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {
+            monitors.forEach { $0.requestDidStart(request, endpoint: endpoint, method: method) }
+        }
+
+        public func requestWillRetry(_ request: URLRequest, endpoint: String, method: String,
+                                     attemptCount: Int, delay: TimeInterval) {
+            monitors.forEach {
+                $0.requestWillRetry(request, endpoint: endpoint, method: method,
+                                    attemptCount: attemptCount, delay: delay)
+            }
+        }
+
+        public func requestDidFinish(_ request: URLRequest, endpoint: String, method: String,
+                                     response: HTTPURLResponse, duration: TimeInterval) {
+            monitors.forEach {
+                $0.requestDidFinish(request, endpoint: endpoint, method: method,
+                                    response: response, duration: duration)
+            }
+        }
+
+        public func requestDidFail(_ request: URLRequest, endpoint: String, method: String,
+                                   error: APIError, duration: TimeInterval) {
+            monitors.forEach {
+                $0.requestDidFail(request, endpoint: endpoint, method: method,
+                                  error: error, duration: duration)
+            }
+        }
     }
 }
 

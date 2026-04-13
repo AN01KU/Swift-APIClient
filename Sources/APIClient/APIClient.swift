@@ -22,25 +22,29 @@ extension BaseAPI {
         private let decoder: JSONDecoder
         private let interceptorChain: InterceptorChain
         private let validators: [any ResponseValidator]
-        private let analytics: APIAnalytics?
+        private let eventMonitor: EventMonitorGroup
+        @available(*, deprecated, renamed: "eventMonitors")
+        private let analytics: (any APIAnalytics)?
         private let logger: APIClientLoggingProtocol?
         private let unauthorizedHandler: (@Sendable (Endpoint) -> Void)?
 
         // MARK: - Initialization
 
-        /// Create a client with an ordered list of interceptors and response validators.
+        /// Create a client with an ordered list of interceptors, response validators, and event monitors.
         ///
         /// - Parameters:
         ///   - interceptors: Applied left-to-right on every outgoing request.
         ///   - validators: Run in order after each response is received; first failure throws.
         ///     Defaults to ``StatusCodeValidator`` (accepts 2xx only).
+        ///   - eventMonitors: Receive lifecycle events (start, retry, finish, fail) for every request.
         public init(
             sessionConfiguration: URLSessionConfiguration = .default,
             encoder: JSONEncoder = JSONEncoder(),
             decoder: JSONDecoder = JSONDecoder(),
             interceptors: [any RequestInterceptor] = [],
             validators: [any ResponseValidator] = [StatusCodeValidator()],
-            analytics: APIAnalytics? = nil,
+            eventMonitors: [any RequestEventMonitor] = [],
+            analytics: (any APIAnalytics)? = nil,
             logger: APIClientLoggingProtocol? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -49,6 +53,7 @@ extension BaseAPI {
             self.decoder = decoder
             self.interceptorChain = InterceptorChain(interceptors)
             self.validators = validators
+            self.eventMonitor = EventMonitorGroup(eventMonitors)
             self.analytics = analytics
             self.logger = logger
             self.unauthorizedHandler = unauthorizedHandler
@@ -61,7 +66,8 @@ extension BaseAPI {
             decoder: JSONDecoder = JSONDecoder(),
             interceptor: (any RequestInterceptor)?,
             validators: [any ResponseValidator] = [StatusCodeValidator()],
-            analytics: APIAnalytics? = nil,
+            eventMonitors: [any RequestEventMonitor] = [],
+            analytics: (any APIAnalytics)? = nil,
             logger: APIClientLoggingProtocol? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -71,6 +77,7 @@ extension BaseAPI {
                 decoder: decoder,
                 interceptors: interceptor.map { [$0] } ?? [],
                 validators: validators,
+                eventMonitors: eventMonitors,
                 analytics: analytics,
                 logger: logger,
                 unauthorizedHandler: unauthorizedHandler
@@ -549,6 +556,7 @@ extension BaseAPI {
             logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
 
             var attemptCount = 0
+            var firstRequest: URLRequest?
             while true {
                 attemptCount += 1
                 do {
@@ -561,6 +569,11 @@ extension BaseAPI {
                         endpoint: endpoint.stringValue,
                         method: method.rawValue
                     )
+
+                    if attemptCount == 1 {
+                        firstRequest = request
+                        eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
+                    }
 
                     let (data, urlResponse) = try await session.data(for: request)
 
@@ -585,6 +598,10 @@ extension BaseAPI {
                         logger?.info(
                             "\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s"
                         )
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestWillRetry(req, endpoint: endpoint.stringValue,
+                                                      method: method.rawValue,
+                                                      attemptCount: attemptCount, delay: delay)
                         if delay > 0 {
                             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                         }
@@ -593,6 +610,10 @@ extension BaseAPI {
                             "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)"
                         )
                         logAnalytics(endpoint, method, startTime, false, nil, apiError.localizedDescription)
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestDidFail(req, endpoint: endpoint.stringValue,
+                                                    method: method.rawValue, error: apiError,
+                                                    duration: Date().timeIntervalSince(startTime))
                         throw apiError
                     }
                 }
@@ -614,6 +635,9 @@ extension BaseAPI {
                     "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(error.errorDescription ?? "Invalid response")"
                 )
                 logAnalytics(endpoint, method, startTime, false, nil, error.errorDescription)
+                eventMonitor.requestDidFail(request, endpoint: endpoint.stringValue,
+                                            method: method.rawValue, error: error,
+                                            duration: Date().timeIntervalSince(startTime))
                 throw error
             }
 
@@ -644,10 +668,16 @@ extension BaseAPI {
                 logAnalytics(
                     endpoint, method, startTime, false, httpResponse.statusCode,
                     apiError.errorDescription)
+                eventMonitor.requestDidFail(request, endpoint: endpoint.stringValue,
+                                            method: method.rawValue, error: apiError,
+                                            duration: Date().timeIntervalSince(startTime))
                 throw apiError
             }
 
             logAnalytics(endpoint, method, startTime, true, httpResponse.statusCode, nil)
+            eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
+                                          method: method.rawValue, response: httpResponse,
+                                          duration: Date().timeIntervalSince(startTime))
             return (decodedResponse, httpResponse)
         }
 
@@ -661,11 +691,17 @@ extension BaseAPI {
             logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
 
             var attemptCount = 0
+            var firstRequest: URLRequest?
             while true {
                 attemptCount += 1
                 do {
                     var request = try await createBaseRequest(endpoint: endpoint, method: method)
                     request.httpBody = rawBody
+
+                    if attemptCount == 1 {
+                        firstRequest = request
+                        eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
+                    }
 
                     let (data, urlResponse) = try await session.data(for: request)
 
@@ -690,6 +726,10 @@ extension BaseAPI {
                         logger?.info(
                             "\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s"
                         )
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestWillRetry(req, endpoint: endpoint.stringValue,
+                                                      method: method.rawValue,
+                                                      attemptCount: attemptCount, delay: delay)
                         if delay > 0 {
                             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                         }
@@ -698,6 +738,10 @@ extension BaseAPI {
                             "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)"
                         )
                         logAnalytics(endpoint, method, startTime, false, nil, apiError.localizedDescription)
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestDidFail(req, endpoint: endpoint.stringValue,
+                                                    method: method.rawValue, error: apiError,
+                                                    duration: Date().timeIntervalSince(startTime))
                         throw apiError
                     }
                 }
