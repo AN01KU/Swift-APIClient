@@ -442,6 +442,47 @@ struct APIClientTests {
         #expect(json?["value"] as? Int == 42)
     }
 
+    // MARK: - AnyEncodable Tests
+
+    @Test("AnyEncodable round-trips a simple struct")
+    func anyEncodableRoundTripsSimpleStruct() throws {
+        let value = TestRequest(name: "Alice", value: 7)
+        let data = try JSONEncoder().encode(AnyEncodable(value))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["name"] as? String == "Alice")
+        #expect(json?["value"] as? Int == 7)
+    }
+
+    @Test("AnyEncodable round-trips a nested struct")
+    func anyEncodableRoundTripsNestedStruct() throws {
+        struct Outer: Encodable {
+            let inner: TestRequest
+            let label: String
+        }
+        let value = Outer(inner: TestRequest(name: "Bob", value: 3), label: "test")
+        let data = try JSONEncoder().encode(AnyEncodable(value))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["label"] as? String == "test")
+        let inner = json?["inner"] as? [String: Any]
+        #expect(inner?["name"] as? String == "Bob")
+    }
+
+    @Test("AnyEncodable works with any Encodable existential")
+    func anyEncodableWorksWithExistential() throws {
+        let values: [any Encodable] = [TestRequest(name: "C", value: 1), TestResponse(id: "x", status: "ok")]
+        for value in values {
+            let data = try JSONEncoder().encode(AnyEncodable(value))
+            #expect(!data.isEmpty)
+        }
+    }
+
+    @Test("AnyEncodable propagates encoding failure")
+    func anyEncodablePropagatesFailure() throws {
+        #expect(throws: (any Error).self) {
+            _ = try JSONEncoder().encode(AnyEncodable(UnencodableBody()))
+        }
+    }
+
     @Test("JSON encoder/decoder configuration")
     func jsonCoderConfiguration() throws {
         let encoder = JSONEncoder()
