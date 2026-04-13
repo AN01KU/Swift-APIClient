@@ -5,14 +5,14 @@ A type-safe, async/await HTTP client for Swift. Built on `URLSession`, designed 
 ## Requirements
 
 - Swift 5.10+
-- macOS 12+ / iOS 15+
+- macOS 12+ / iOS 15+ / tvOS 15+ / watchOS 8+ / visionOS 1+
 
 ## Installation
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/APIClient.git", from: "1.0.0")
+    .package(url: "https://github.com/AN01KU/Swift-API-Client.git", from: "1.0.0")
 ]
 ```
 

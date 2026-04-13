@@ -22,6 +22,9 @@ enum GitHubAPI: BaseAPI.APIEndpoint {
         }
     }
 
+    var headers: [String: String]? {
+        ["Accept": "application/vnd.github+json"]
+    }
 }
 
 // 2. Create a request interceptor for authentication
@@ -30,7 +33,7 @@ struct GitHubAuthInterceptor: BaseAPI.RequestInterceptor {
 
     func adapt(_ request: URLRequest) async throws -> URLRequest {
         var request = request
-        request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
 }
@@ -80,208 +83,145 @@ struct CreateRepoRequest: Codable {
     }
 }
 
-// 4. Analytics tracking (optional)
-final class DemoAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
-    func addAnalytics(
-        endpoint: String,
-        method: String,
-        startTime: Date,
-        endTime: Date,
-        success: Bool,
-        statusCode: Int?,
-        error: String?
+// 4. Event monitor for observability (replaces the deprecated APIAnalytics)
+final class DemoEventMonitor: BaseAPI.RequestEventMonitor, @unchecked Sendable {
+    func requestDidStart(_ request: URLRequest, endpoint: String, method: String) {
+        print("→ \(method) \(endpoint)")
+    }
+
+    func requestDidFinish(
+        _ request: URLRequest, endpoint: String, method: String,
+        response: HTTPURLResponse, duration: TimeInterval
     ) {
-        let duration = endTime.timeIntervalSince(startTime)
-        print("📊 Analytics: \(method) \(endpoint) - \(success ? "✅" : "❌") (\(duration)s)")
+        print("✓ \(method) \(endpoint) \(response.statusCode) (\(String(format: "%.2f", duration))s)")
+    }
+
+    func requestDidFail(
+        _ request: URLRequest, endpoint: String, method: String,
+        error: BaseAPI.APIError, duration: TimeInterval
+    ) {
+        print("✗ \(method) \(endpoint) — \(error.localizedDescription)")
     }
 }
 
 // 5. Main demo class
-class APIClientDemo {
+final class APIClientDemo {
     private let client: BaseAPI.BaseAPIClient<GitHubAPI>
 
     init() {
-        let logger = APIClientLogger()
-        let analytics = DemoAnalytics()
-        let interceptor = GitHubAuthInterceptor(token: "YOUR_GITHUB_TOKEN")
-
         client = BaseAPI.BaseAPIClient(
-            interceptor: interceptor,
-            analytics: analytics,
-            logger: logger,
+            interceptors: [
+                GitHubAuthInterceptor(token: "YOUR_GITHUB_TOKEN"),
+                BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .exponential(base: 1, multiplier: 2, maxDelay: 30)),
+            ],
+            eventMonitors: [DemoEventMonitor()],
+            logger: APIClientLogger(),
             unauthorizedHandler: { endpoint in
-                print("🔒 Unauthorized access to \(endpoint.stringValue)")
+                print("Unauthorized: \(endpoint.stringValue)")
             }
         )
     }
 
-    // MARK: - Async/Await Examples
+    // MARK: - Example requests
 
-    func fetchUserAsync() async {
-        print("\n🚀 Fetching user with async/await...")
-
+    func fetchUser() async {
         do {
-            let response: BaseAPI.APIResponse<GitHubUser> = try await client.get(
-                .user(username: "torvalds")
-            )
-
-            let user = response.data
-            print("👤 User: \(user.login)")
-            print("📝 Bio: \(user.bio ?? "No bio")")
-            print("📊 Repos: \(user.publicRepos), Followers: \(user.followers)")
-
+            let (user, _): BaseAPI.APIResponse<GitHubUser> = try await client.get(.user(username: "torvalds"))
+            print("User: \(user.login), repos: \(user.publicRepos)")
         } catch {
             handleError(error)
         }
     }
 
-    func fetchReposAsync() async {
-        print("\n📚 Fetching repositories with async/await...")
-
+    func fetchRepos() async {
         do {
-            let response: BaseAPI.APIResponse<[GitHubRepo]> = try await client.get(
-                .repos(username: "torvalds")
-            )
-
-            let repos = response.data.prefix(3)  // Show first 3
-            for repo in repos {
-                print("📦 \(repo.name): ⭐\(repo.stargazersCount) 🍴\(repo.forksCount)")
+            let (repos, _): BaseAPI.APIResponse<[GitHubRepo]> = try await client.get(.repos(username: "torvalds"))
+            for repo in repos.prefix(3) {
+                print("\(repo.name): ★\(repo.stargazersCount)")
             }
-
         } catch {
             handleError(error)
         }
     }
 
-    func createRepoAsync() async {
-        print("\n➕ Creating repository with async/await...")
-
-        let newRepo = CreateRepoRequest(
-            name: "demo-repo",
-            description: "A demo repository created via API"
-        )
-
+    func createRepo() async {
+        let body = CreateRepoRequest(name: "demo-repo", description: "Created via APIClient")
         do {
-            let response: BaseAPI.APIResponse<GitHubRepo> = try await client.post(
-                .createRepo(name: newRepo.name, description: newRepo.description),
-                body: newRepo
+            let (repo, _): BaseAPI.APIResponse<GitHubRepo> = try await client.post(
+                .createRepo(name: body.name, description: body.description),
+                body: body
             )
-
-            let repo = response.data
-            print("✅ Created repository: \(repo.fullName)")
-
+            print("Created: \(repo.fullName)")
         } catch {
             handleError(error)
         }
     }
 
-    // MARK: - Multipart Upload Example
+    func downloadWithProgress() async {
+        for try await progress in client.download(.repos(username: "torvalds")) {
+            if let data = progress.data {
+                print("Download complete: \(data.count) bytes")
+            } else if let fraction = progress.fraction {
+                print("Progress: \(Int(fraction * 100))%")
+            }
+        }
+    }
 
-    func uploadFileExample() async {
-        print("\n📤 Multipart upload example...")
+    // MARK: - Fluent RequestBuilder example
 
-        // Create sample file
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileURL = tempDir.appendingPathComponent("sample.txt")
-        let content = "Sample file content for upload demo"
-
+    func fetchUserWithBuilder() async {
         do {
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            let (user, _): BaseAPI.APIResponse<GitHubUser> = try await client
+                .request(.user(username: "torvalds"))
+                .headers(["X-Request-ID": UUID().uuidString])
+                .timeout(15)
+                .response()
+            print("User via builder: \(user.login)")
+        } catch {
+            handleError(error)
+        }
+    }
 
-            let multipartData = BaseAPI.MultipartData(
+    // MARK: - Multipart upload example
+
+    func uploadFile() async {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("sample.txt")
+        do {
+            try "Sample content".write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let data = BaseAPI.MultipartData(
                 parameters: ["description": "Sample upload" as AnyObject],
                 fileKeyName: "file",
                 fileURLs: [fileURL]
             )
-
             let response = try await client.multipartUpload(
                 .createRepo(name: "upload-test", description: "Upload test"),
                 method: .post,
-                data: multipartData
+                data: data
             )
-
-            print("✅ Upload completed with status: \(response.statusCode)")
-
-            // Clean up
+            print("Upload status: \(response.statusCode)")
             try? FileManager.default.removeItem(at: fileURL)
-
         } catch {
             handleError(error)
         }
     }
 
-    // MARK: - Error Handling
+    // MARK: - Error handling
 
     private func handleError(_ error: Error) {
-        if let apiError = error as? BaseAPI.APIError {
-            switch apiError {
-            case .networkError(let message):
-                print("❌ Network error: \(message)")
-            case .serverError(_, let code, let requestID):
-                print("❌ Server error \(code), Request ID: \(requestID)")
-            case .decodingFailed(_, let message):
-                print("❌ Decoding failed: \(message)")
-            default:
-                print("❌ API Error: \(apiError.localizedDescription)")
-            }
-        } else {
-            print("❌ Unexpected error: \(error.localizedDescription)")
+        guard let apiError = error as? BaseAPI.APIError else {
+            print("Unexpected error: \(error.localizedDescription)")
+            return
         }
-    }
-
-    // MARK: - Run Demo
-
-    func runDemo() async {
-        print("🎯 APIClient Demo Starting...")
-        print("=" * 50)
-
-        // Async/await examples
-        await fetchUserAsync()
-        await fetchReposAsync()
-        // Note: createRepoAsync requires valid auth token
-        // await createRepoAsync()
-
-        // Callback examples
-        fetchUserCallback()
-        fetchReposCallback()
-
-        // Multipart upload example
-        // await uploadFileExample()
-
-        print("\n✅ Demo completed!")
-    }
-}
-
-// MARK: - Usage Instructions
-
-/*
- To run this demo:
-
- 1. Add your GitHub token to the authHeader in GitHubAPI enum
- 2. Create an instance of APIClientDemo and call runDemo()
-
- Example:
- ```swift
- let demo = APIClientDemo()
- await demo.runDemo()
- ```
-
- Features demonstrated:
- - ✅ Custom endpoint definitions
- - ✅ Codable data models
- - ✅ Async/await API calls
- - ✅ Callback-based API calls
- - ✅ GET and POST requests
- - ✅ Request/response body logging
- - ✅ Error handling
- - ✅ Analytics tracking
- - ✅ Authentication headers
- - ✅ Multipart file uploads
- - ✅ Structured logging with APIClientLogger
- */
-
-extension String {
-    static func * (lhs: String, rhs: Int) -> String {
-        return String(repeating: lhs, count: rhs)
+        switch apiError {
+        case .networkError(let message):
+            print("Network error: \(message)")
+        case .serverError(_, let code, let requestID):
+            print("Server error \(code) (request ID: \(requestID))")
+        case .decodingFailed(_, let message):
+            print("Decoding failed: \(message)")
+        default:
+            print("API error: \(apiError.localizedDescription)")
+        }
     }
 }
