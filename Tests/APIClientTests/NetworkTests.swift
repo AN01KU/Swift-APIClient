@@ -1035,4 +1035,74 @@ struct NetworkTests {
             #expect(await capturedHeader.value == "secret")
         }
     }
+
+    // MARK: - Unauthorized Handler Tests
+
+    @Suite("Unauthorized Handler Tests")
+    struct UnauthorizedHandlerTests {
+
+        /// Interceptor that succeeds on the second attempt (simulates token refresh).
+        struct RetryOnceInterceptor: BaseAPI.RequestInterceptor {
+            let callCount = ActorBox<Int>(0)
+
+            func adapt(_ request: URLRequest) async throws -> URLRequest { request }
+
+            func retry(
+                _ request: URLRequest, dueTo error: Error, attemptCount: Int
+            ) async -> BaseAPI.RetryDecision {
+                await callCount.set(await callCount.value + 1)
+                return attemptCount < 2 ? .retry(delay: 0) : .doNotRetry
+            }
+        }
+
+        @Test("unauthorizedHandler fires once on final 401 failure")
+        func handlerFiresOnFinalFailure() async throws {
+            MockURLProtocol.handler = { req in
+                (Data(), HTTPURLResponse(url: req.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!)
+            }
+            let handlerCallCount = ActorBox<Int>(0)
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                unauthorizedHandler: { _ in
+                    Task { await handlerCallCount.set(await handlerCallCount.value + 1) }
+                }
+            )
+            do {
+                let _: BaseAPI.APIResponse<TestResponse> =
+                    try await client.request(MockEndpoint(endpoint: "secure", token: nil)).response()
+                Issue.record("Expected throw")
+            } catch {}
+            // Brief yield so the Task inside the handler can complete.
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(await handlerCallCount.value == 1)
+        }
+
+        @Test("unauthorizedHandler does NOT fire when interceptor retries 401 and succeeds")
+        func handlerDoesNotFireOnRetrySuccess() async throws {
+            let attemptCount = ActorBox<Int>(0)
+            let successPayload = try JSONEncoder().encode(TestResponse(id: "ok", status: "ok"))
+            MockURLProtocol.handler = { req in
+                await attemptCount.set(await attemptCount.value + 1)
+                let count = await attemptCount.value
+                if count == 1 {
+                    return (Data(), HTTPURLResponse(url: req.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!)
+                }
+                return (successPayload, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let handlerCallCount = ActorBox<Int>(0)
+            let interceptor = RetryOnceInterceptor()
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                interceptors: [interceptor],
+                unauthorizedHandler: { _ in
+                    Task { await handlerCallCount.set(await handlerCallCount.value + 1) }
+                }
+            )
+            let (result, _): BaseAPI.APIResponse<TestResponse> =
+                try await client.request(MockEndpoint(endpoint: "secure", token: nil)).response()
+            #expect(result.id == "ok")
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(await handlerCallCount.value == 0)
+        }
+    }
 }

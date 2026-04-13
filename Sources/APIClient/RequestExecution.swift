@@ -247,10 +247,6 @@ extension BaseAPI.BaseAPIClient {
         request: URLRequest,
         endpoint: Endpoint
     ) throws {
-        if response.statusCode == 401 {
-            logger?.error("unauthorized/incorrect auth token")
-            unauthorizedHandler?(endpoint)
-        }
         for validator in validators {
             do {
                 try validator.validate(response, data: data, for: request)
@@ -324,6 +320,10 @@ extension BaseAPI.BaseAPIClient {
         case .doNotRetry:
             logger?.error(
                 "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+            if case .serverError(let response, _, _) = apiError, response.statusCode == 401 {
+                logger?.error("unauthorized/incorrect auth token")
+                unauthorizedHandler?(endpoint)
+            }
             let req = firstRequest ?? URLRequest(url: endpoint.url)
             eventMonitor.requestDidFail(
                 req, endpoint: endpoint.stringValue,
