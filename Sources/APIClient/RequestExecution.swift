@@ -198,39 +198,6 @@ extension BaseAPI.BaseAPIClient {
         }
     }
 
-    // MARK: - Public Raw Execution Helper
-
-    /// Execute a request and return the raw `(Data, URLResponse)` tuple.
-    ///
-    /// - Warning: This method bypasses the client's validators, event monitors, and retry
-    ///   logic. Prefer `request(_:).responseData()` for consistent behaviour.
-    public func performRequest<Request: Encodable>(
-        endpoint: Endpoint,
-        method: BaseAPI.HTTPMethod,
-        body: Request?
-    ) async throws -> (data: Data, urlResponse: URLResponse) {
-        logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
-
-        do {
-            var request = try await createBaseRequest(endpoint: endpoint, method: method)
-            try request.addJSONBody(body, encoder: encoder)
-
-            let result = try await session.data(for: request)
-
-            if let httpResponse = result.1 as? HTTPURLResponse {
-                logger?.info(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
-            }
-            return result
-
-        } catch {
-            let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error as? URLError ?? URLError(.unknown))
-            logger?.error(
-                "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
-            throw apiError
-        }
-    }
-
     // MARK: - Internal Helpers
 
     func createBaseRequest(endpoint: Endpoint, method: BaseAPI.HTTPMethod) async throws -> URLRequest {
