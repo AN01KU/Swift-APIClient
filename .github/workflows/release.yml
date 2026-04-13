@@ -33,7 +33,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
           git archive --format=zip --prefix="APIClient-${VERSION}/" \
-            HEAD -- Sources Tests Package.swift Package.resolved README.md LICENSE \
+            HEAD -- Sources Tests Package.swift README.md LICENSE \
             > "APIClient-${VERSION}.zip"
 
       - name: Create GitHub Release
