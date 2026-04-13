@@ -12,14 +12,40 @@ public enum BaseAPI {
     // MARK: - Protocols
 
     /// Protocol defining API endpoint requirements
-    public protocol APIEndpoint: Equatable {
-        var url: URL { get }
-        var stringValue: String { get }
-        var authHeader: [String: String]? { get }
+    public protocol APIEndpoint: Equatable, Sendable {
+        /// Base URL for the API (e.g., "https://api.example.com")
+        var baseURL: URL { get }
+        /// Path component appended to baseURL (e.g., "/users/123")
+        var path: String { get }
+        /// Endpoint-specific headers (merged into the request)
+        var headers: [String: String]? { get }
+        /// Query parameters appended to the URL
+        var queryParameters: [String: String]? { get }
+    }
+
+    /// Decision returned by an interceptor's retry handler.
+    public enum RetryDecision: Sendable {
+        /// Retry the request after the given delay (in seconds). Use 0 for immediate retry.
+        case retry(delay: TimeInterval)
+        /// Do not retry; propagate the error to the caller.
+        case doNotRetry
+    }
+
+    /// Protocol for intercepting and adapting outgoing requests, and optionally retrying them.
+    ///
+    /// - `adapt` is called before every attempt, allowing header injection, token refresh, etc.
+    /// - `retry` is called after a failed attempt; return `.retry(delay:)` to schedule another attempt.
+    ///
+    /// Most interceptors only need `adapt` — the default `retry` implementation returns `.doNotRetry`.
+    public protocol RequestInterceptor: Sendable {
+        /// Mutate or replace the outgoing request before it is sent.
+        func adapt(_ request: URLRequest) async throws -> URLRequest
+        /// Decide whether to retry after `error` on attempt number `attemptCount` (1-based).
+        func retry(_ request: URLRequest, dueTo error: Error, attemptCount: Int) async -> RetryDecision
     }
 
     /// Protocol for logging API client operations
-    public protocol APIClientLoggingProtocol {
+    public protocol APIClientLoggingProtocol: Sendable {
         func info(_ value: String)
         func debug(_ value: String)
         func error(_ value: String)
@@ -27,7 +53,7 @@ public enum BaseAPI {
     }
 
     /// Protocol for analytics tracking of API operations
-    public protocol APIAnalytics {
+    public protocol APIAnalytics: Sendable {
         func addAnalytics(
             endpoint: String,
             method: String,
@@ -43,7 +69,6 @@ public enum BaseAPI {
 
     /// Comprehensive error enum for API operations
     public enum APIError: Error, LocalizedError {
-        case missingAuthHeader
         case encodingFailed
         case networkError(String)
         case invalidResponse(response: URLResponse)
@@ -53,8 +78,6 @@ public enum BaseAPI {
 
         public var errorDescription: String? {
             switch self {
-            case .missingAuthHeader:
-                return "Authentication header is missing"
             case .encodingFailed:
                 return "Failed to encode request body"
             case .networkError(let message):
@@ -72,7 +95,7 @@ public enum BaseAPI {
 
         public var isClientError: Bool {
             switch self {
-            case .missingAuthHeader, .encodingFailed, .decodingFailed:
+            case .encodingFailed, .decodingFailed:
                 return true
             default:
                 return false
@@ -123,6 +146,47 @@ public enum BaseAPI {
     }
 }
 
+// MARK: - RequestInterceptor Defaults
+
+extension BaseAPI.RequestInterceptor {
+    /// Default: never retry. Override to add retry logic.
+    public func retry(_ request: URLRequest, dueTo error: Error, attemptCount: Int) async -> BaseAPI.RetryDecision {
+        .doNotRetry
+    }
+}
+
+// MARK: - InterceptorChain
+
+extension BaseAPI {
+    /// Composes multiple ``RequestInterceptor`` values into a single pipeline.
+    ///
+    /// `adapt` calls are applied left-to-right (first interceptor runs first).
+    /// `retry` asks each interceptor in order; the first `.retry` decision wins.
+    public struct InterceptorChain: RequestInterceptor {
+        private let interceptors: [any RequestInterceptor]
+
+        public init(_ interceptors: [any RequestInterceptor]) {
+            self.interceptors = interceptors
+        }
+
+        public func adapt(_ request: URLRequest) async throws -> URLRequest {
+            var current = request
+            for interceptor in interceptors {
+                current = try await interceptor.adapt(current)
+            }
+            return current
+        }
+
+        public func retry(_ request: URLRequest, dueTo error: Error, attemptCount: Int) async -> RetryDecision {
+            for interceptor in interceptors {
+                let decision = await interceptor.retry(request, dueTo: error, attemptCount: attemptCount)
+                if case .retry = decision { return decision }
+            }
+            return .doNotRetry
+        }
+    }
+}
+
 // MARK: - APIError Extensions
 
 extension BaseAPI.APIError {
@@ -136,4 +200,31 @@ extension BaseAPI.APIError {
             return nil
         }
     }
+}
+
+// MARK: - APIEndpoint Defaults
+
+extension BaseAPI.APIEndpoint {
+    /// Constructed URL from baseURL + path + queryParameters
+    public var url: URL {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent(path),
+            resolvingAgainstBaseURL: false
+        )
+        if let queryParameters, !queryParameters.isEmpty {
+            components?.queryItems = queryParameters
+                .sorted { $0.key < $1.key }
+                .map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        return components?.url ?? baseURL.appendingPathComponent(path)
+    }
+
+    /// String representation for logging
+    public var stringValue: String { path }
+
+    /// Default: no endpoint-specific headers
+    public var headers: [String: String]? { nil }
+
+    /// Default: no query parameters
+    public var queryParameters: [String: String]? { nil }
 }

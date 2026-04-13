@@ -3,7 +3,7 @@ import Foundation
 extension BaseAPI {
 
     /// Generic HTTP API client with async/await and callback support
-    open class BaseAPIClient<Endpoint: APIEndpoint> {
+    open class BaseAPIClient<Endpoint: APIEndpoint>: @unchecked Sendable {
 
         // MARK: - HTTP Methods
 
@@ -20,26 +20,54 @@ extension BaseAPI {
         private let session: URLSession
         private let encoder: JSONEncoder
         private let decoder: JSONDecoder
+        private let interceptorChain: InterceptorChain
         private let analytics: APIAnalytics?
         private let logger: APIClientLoggingProtocol?
-        private let unauthorizedHandler: ((Endpoint) -> Void)?
+        private let unauthorizedHandler: (@Sendable (Endpoint) -> Void)?
 
         // MARK: - Initialization
 
+        /// Create a client with an ordered list of interceptors.
+        ///
+        /// Interceptors are applied left-to-right during `adapt` and consulted
+        /// left-to-right for retry decisions (first `.retry` wins).
         public init(
             sessionConfiguration: URLSessionConfiguration = .default,
             encoder: JSONEncoder = JSONEncoder(),
             decoder: JSONDecoder = JSONDecoder(),
+            interceptors: [any RequestInterceptor] = [],
             analytics: APIAnalytics? = nil,
             logger: APIClientLoggingProtocol? = nil,
-            unauthorizedHandler: ((Endpoint) -> Void)? = nil
+            unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
             self.session = URLSession(configuration: sessionConfiguration)
             self.encoder = encoder
             self.decoder = decoder
+            self.interceptorChain = InterceptorChain(interceptors)
             self.analytics = analytics
             self.logger = logger
             self.unauthorizedHandler = unauthorizedHandler
+        }
+
+        /// Convenience initialiser for a single interceptor (backwards-compatible callsite).
+        public convenience init(
+            sessionConfiguration: URLSessionConfiguration = .default,
+            encoder: JSONEncoder = JSONEncoder(),
+            decoder: JSONDecoder = JSONDecoder(),
+            interceptor: (any RequestInterceptor)?,
+            analytics: APIAnalytics? = nil,
+            logger: APIClientLoggingProtocol? = nil,
+            unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
+        ) {
+            self.init(
+                sessionConfiguration: sessionConfiguration,
+                encoder: encoder,
+                decoder: decoder,
+                interceptors: interceptor.map { [$0] } ?? [],
+                analytics: analytics,
+                logger: logger,
+                unauthorizedHandler: unauthorizedHandler
+            )
         }
 
         // MARK: - GET Requests
@@ -61,8 +89,8 @@ extension BaseAPI {
         public func get<Response>(
             _ endpoint: Endpoint,
             printResponseBody: Bool = false,
-            then callback: @escaping (APIResult<Response>) -> Void
-        ) where Response: Decodable {
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable {
             Task {
                 do {
                     let result: APIResponse<Response> = try await get(
@@ -96,8 +124,8 @@ extension BaseAPI {
             _ endpoint: Endpoint,
             body: Request,
             printRequestBody: Bool = false,
-            then callback: @escaping (APIURLResult) -> Void
-        ) where Request: Encodable {
+            then callback: @escaping @Sendable (APIURLResult) -> Void
+        ) where Request: Encodable & Sendable {
             Task {
                 do {
                     let result = try await post(
@@ -130,8 +158,8 @@ extension BaseAPI {
             body: Request,
             printRequestBody: Bool = false,
             printResponseBody: Bool = false,
-            then callback: @escaping (APIResult<Response>) -> Void
-        ) where Response: Decodable, Request: Encodable {
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable, Request: Encodable & Sendable {
             Task {
                 do {
                     let result: APIResponse<Response> = try await post(
@@ -169,8 +197,8 @@ extension BaseAPI {
             _ endpoint: Endpoint,
             body: Request,
             printRequestBody: Bool = false,
-            then callback: @escaping (APIURLResult) -> Void
-        ) where Request: Encodable {
+            then callback: @escaping @Sendable (APIURLResult) -> Void
+        ) where Request: Encodable & Sendable {
             Task {
                 do {
                     let result = try await put(
@@ -204,8 +232,8 @@ extension BaseAPI {
             _ endpoint: Endpoint,
             body: Request,
             printRequestBody: Bool = false,
-            then callback: @escaping (APIURLResult) -> Void
-        ) where Request: Encodable {
+            then callback: @escaping @Sendable (APIURLResult) -> Void
+        ) where Request: Encodable & Sendable {
             Task {
                 do {
                     let result = try await patch(
@@ -238,7 +266,7 @@ extension BaseAPI {
         public func delete(
             _ endpoint: Endpoint,
             printResponseBody: Bool = false,
-            then callback: @escaping (APIURLResult) -> Void
+            then callback: @escaping @Sendable (APIURLResult) -> Void
         ) {
             Task {
                 do {
@@ -269,8 +297,8 @@ extension BaseAPI {
         public func delete<Response>(
             _ endpoint: Endpoint,
             printResponseBody: Bool = false,
-            then callback: @escaping (APIResult<Response>) -> Void
-        ) where Response: Decodable {
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable {
             Task {
                 do {
                     let result: APIResponse<Response> = try await delete(
@@ -297,7 +325,7 @@ extension BaseAPI {
             logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
 
             do {
-                var request = try createBaseRequest(endpoint: endpoint, method: method)
+                var request = try await createBaseRequest(endpoint: endpoint, method: method)
                 try request.addMultipartData(
                     data: data,
                     printRequestBody: printRequestBody,
@@ -349,8 +377,9 @@ extension BaseAPI {
             body: MultipartData,
             printRequestBody: Bool = false,
             printResponseBody: Bool = false,
-            then callback: @escaping (APIURLResult) -> Void
+            then callback: @escaping @Sendable (APIURLResult) -> Void
         ) {
+            let method = method
             Task {
                 do {
                     let result = try await multipartUpload(
@@ -381,7 +410,7 @@ extension BaseAPI {
             logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
 
             do {
-                var request = try createBaseRequest(endpoint: endpoint, method: method)
+                var request = try await createBaseRequest(endpoint: endpoint, method: method)
                 try request.addJSONBody(
                     body,
                     encoder: encoder,
@@ -421,38 +450,55 @@ extension BaseAPI {
             printResponseBody: Bool = false
         ) async throws -> APIResponse<Response> {
             let startTime = Date()
-
             logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
 
-            do {
-                var request = try createBaseRequest(endpoint: endpoint, method: method)
-                try request.addJSONBody(
-                    body,
-                    encoder: encoder,
-                    printRequestBody: printRequestBody,
-                    logger: logger,
-                    endpoint: endpoint.stringValue,
-                    method: method.rawValue
-                )
+            var attemptCount = 0
+            while true {
+                attemptCount += 1
+                do {
+                    var request = try await createBaseRequest(endpoint: endpoint, method: method)
+                    try request.addJSONBody(
+                        body,
+                        encoder: encoder,
+                        printRequestBody: printRequestBody,
+                        logger: logger,
+                        endpoint: endpoint.stringValue,
+                        method: method.rawValue
+                    )
 
-                let (data, urlResponse) = try await session.data(for: request)
+                    let (data, urlResponse) = try await session.data(for: request)
 
-                return try handleResponse(
-                    endpoint: endpoint,
-                    method: method,
-                    data: data,
-                    urlResponse: urlResponse,
-                    startTime: startTime,
-                    printResponseBody: printResponseBody
-                )
-            } catch {
-                let apiError =
-                    error as? APIError ?? APIError.networkError(error.localizedDescription)
-                logger?.error(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)"
-                )
-                logAnalytics(endpoint, method, startTime, false, nil, apiError.localizedDescription)
-                throw apiError
+                    return try handleResponse(
+                        endpoint: endpoint,
+                        method: method,
+                        data: data,
+                        urlResponse: urlResponse,
+                        startTime: startTime,
+                        printResponseBody: printResponseBody
+                    )
+                } catch {
+                    let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                    let decision = await interceptorChain.retry(
+                        URLRequest(url: endpoint.url),
+                        dueTo: apiError,
+                        attemptCount: attemptCount
+                    )
+                    switch decision {
+                    case .retry(let delay):
+                        logger?.info(
+                            "\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s"
+                        )
+                        if delay > 0 {
+                            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        }
+                    case .doNotRetry:
+                        logger?.error(
+                            "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)"
+                        )
+                        logAnalytics(endpoint, method, startTime, false, nil, apiError.localizedDescription)
+                        throw apiError
+                    }
+                }
             }
         }
 
@@ -507,15 +553,14 @@ extension BaseAPI {
             return (decodedResponse, httpResponse)
         }
 
-        private func createBaseRequest(endpoint: Endpoint, method: HTTPMethod) throws -> URLRequest {
-            guard let authHeader = endpoint.authHeader else {
-                throw APIError.missingAuthHeader
-            }
-
+        private func createBaseRequest(
+            endpoint: Endpoint,
+            method: HTTPMethod
+        ) async throws -> URLRequest {
             var request = URLRequest(url: endpoint.url)
             request.httpMethod = method.rawValue
-            request.addJSONHeaders(authHeader: authHeader)
-
+            request.addJSONHeaders(additionalHeaders: endpoint.headers ?? [:])
+            request = try await interceptorChain.adapt(request)
             return request
         }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// APIClient-specific logger that conforms to APIClientLoggingProtocol
 /// Simple implementation that prints logs to console
-public final class APIClientLogger: BaseAPI.APIClientLoggingProtocol {
+public final class APIClientLogger: BaseAPI.APIClientLoggingProtocol, Sendable {
 
     /// Initialize the logger
     public init() {}

@@ -9,37 +9,33 @@ enum GitHubAPI: BaseAPI.APIEndpoint {
     case repos(username: String)
     case createRepo(name: String, description: String)
 
-    var baseURL: String { "https://api.github.com" }
+    var baseURL: URL { URL(string: "https://api.github.com")! }
 
-    var url: URL {
-        switch self {
-        case .user(let username):
-            return URL(string: "\(baseURL)/users/\(username)")!
-        case .repos(let username):
-            return URL(string: "\(baseURL)/users/\(username)/repos")!
-        case .createRepo:
-            return URL(string: "\(baseURL)/user/repos")!
-        }
-    }
-
-    var stringValue: String {
+    var path: String {
         switch self {
         case .user(let username):
             return "users/\(username)"
         case .repos(let username):
             return "users/\(username)/repos"
-        case .createRepo(let name, _):
-            return "user/repos/\(name)"
+        case .createRepo:
+            return "user/repos"
         }
     }
 
-    var authHeader: [String: String]? {
-        // In a real app, get token securely from keychain or environment
-        return ["Authorization": "token YOUR_GITHUB_TOKEN"]
+}
+
+// 2. Create a request interceptor for authentication
+struct GitHubAuthInterceptor: BaseAPI.RequestInterceptor {
+    let token: String
+
+    func adapt(_ request: URLRequest) async throws -> URLRequest {
+        var request = request
+        request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
+        return request
     }
 }
 
-// 2. Define your data models
+// 3. Define your data models
 struct GitHubUser: Codable {
     let id: Int
     let login: String
@@ -84,7 +80,7 @@ struct CreateRepoRequest: Codable {
     }
 }
 
-// 3. Analytics tracking (optional)
+// 4. Analytics tracking (optional)
 class DemoAnalytics: BaseAPI.APIAnalytics {
     func addAnalytics(
         endpoint: String,
@@ -100,16 +96,17 @@ class DemoAnalytics: BaseAPI.APIAnalytics {
     }
 }
 
-// 4. Main demo class
+// 5. Main demo class
 class APIClientDemo {
     private let client: BaseAPI.BaseAPIClient<GitHubAPI>
 
     init() {
-        // Initialize with logger and analytics
         let logger = APIClientLogger()
         let analytics = DemoAnalytics()
+        let interceptor = GitHubAuthInterceptor(token: "YOUR_GITHUB_TOKEN")
 
         client = BaseAPI.BaseAPIClient(
+            interceptor: interceptor,
             analytics: analytics,
             logger: logger,
             unauthorizedHandler: { endpoint in
@@ -256,8 +253,6 @@ class APIClientDemo {
     private func handleError(_ error: Error) {
         if let apiError = error as? BaseAPI.APIError {
             switch apiError {
-            case .missingAuthHeader:
-                print("❌ Missing authentication header")
             case .networkError(let message):
                 print("❌ Network error: \(message)")
             case .serverError(_, let code, let requestID):

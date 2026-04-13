@@ -5,12 +5,12 @@ import UniformTypeIdentifiers
 
 extension URLRequest {
 
-    mutating func addJSONHeaders(authHeader: [String: String]) {
+    mutating func addJSONHeaders(additionalHeaders: [String: String] = [:]) {
         var headers = [
             "Content-Type": "application/json",
             "Accept": "application/json",
         ]
-        headers.merge(authHeader) { _, new in new }
+        headers.merge(additionalHeaders) { _, new in new }
 
         for (key, value) in headers {
             setValue(value, forHTTPHeaderField: key)

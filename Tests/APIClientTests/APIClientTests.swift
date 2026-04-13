@@ -9,15 +9,15 @@ struct MockEndpoint: BaseAPI.APIEndpoint, Equatable, Hashable {
     let endpoint: String
     let token: String?
 
-    var url: URL {
-        URL(string: "https://api.example.com/\(endpoint)")!
+    var baseURL: URL {
+        URL(string: "https://api.example.com")!
     }
 
-    var stringValue: String {
+    var path: String {
         endpoint
     }
 
-    var authHeader: [String: String]? {
+    var headers: [String: String]? {
         guard let token = token else { return [:] }
         return ["Authorization": "Bearer \(token)"]
     }
@@ -35,7 +35,7 @@ struct TestResponse: Codable {
 }
 
 // MARK: - Mock Logger for Testing
-class MockLogger: BaseAPI.APIClientLoggingProtocol {
+final class MockLogger: BaseAPI.APIClientLoggingProtocol, @unchecked Sendable {
     private(set) var logCount = 0
 
     func info(_ value: String) { logCount += 1 }
@@ -46,8 +46,27 @@ class MockLogger: BaseAPI.APIClientLoggingProtocol {
     func reset() { logCount = 0 }
 }
 
+// MARK: - Mock Request Interceptor
+struct MockInterceptor: BaseAPI.RequestInterceptor {
+    let additionalHeaders: [String: String]
+
+    func adapt(_ request: URLRequest) async throws -> URLRequest {
+        var request = request
+        for (key, value) in additionalHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        return request
+    }
+}
+
+struct FailingInterceptor: BaseAPI.RequestInterceptor {
+    func adapt(_ request: URLRequest) async throws -> URLRequest {
+        throw BaseAPI.APIError.networkError("Interceptor rejected request")
+    }
+}
+
 // MARK: - Mock Analytics
-class MockAnalytics: BaseAPI.APIAnalytics {
+final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
     var analyticsData:
         [(
             endpoint: String, method: String, startTime: Date, endTime: Date, success: Bool,
@@ -99,7 +118,6 @@ struct APIClientTests {
     @Test("APIError descriptions")
     func apiErrorDescriptions() throws {
         let errors: [BaseAPI.APIError] = [
-            .missingAuthHeader,
             .encodingFailed,
             .networkError("Test network error"),
             .unknown,
@@ -113,7 +131,6 @@ struct APIClientTests {
 
     @Test("APIError client error classification")
     func apiErrorClientErrorClassification() throws {
-        #expect(BaseAPI.APIError.missingAuthHeader.isClientError == true)
         #expect(BaseAPI.APIError.encodingFailed.isClientError == true)
         #expect(
             BaseAPI.APIError.decodingFailed(response: HTTPURLResponse(), error: "test")
@@ -129,10 +146,10 @@ struct APIClientTests {
 
         #expect(endpoint.url.absoluteString == "https://api.example.com/users")
         #expect(endpoint.stringValue == "users")
-        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+        #expect(endpoint.headers?["Authorization"] == "Bearer test-token")
 
         let endpointWithoutToken = MockEndpoint(endpoint: "public", token: nil)
-        #expect(endpointWithoutToken.authHeader?.isEmpty == true)
+        #expect(endpointWithoutToken.headers?.isEmpty == true)
     }
 
     // MARK: - Data Structure Tests
@@ -244,7 +261,7 @@ struct APIClientTests {
 
         #expect(endpoint.url.absoluteString == "https://api.example.com/users/123")
         #expect(endpoint.stringValue == "users/123")
-        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+        #expect(endpoint.headers?["Authorization"] == "Bearer test-token")
     }
 
     @Test("Endpoint without authentication")
@@ -253,7 +270,7 @@ struct APIClientTests {
 
         #expect(endpoint.url.absoluteString == "https://api.example.com/public/data")
         #expect(endpoint.stringValue == "public/data")
-        #expect(endpoint.authHeader?.isEmpty == true)
+        #expect(endpoint.headers?.isEmpty == true)
     }
 
     // MARK: - Additional Tests for Better Coverage
@@ -281,9 +298,9 @@ struct APIClientTests {
     @Test("URLRequest JSON headers addition")
     func urlRequestJSONHeaders() throws {
         var request = URLRequest(url: URL(string: "https://example.com")!)
-        let authHeader = ["Authorization": "Bearer token123", "X-Custom": "CustomValue"]
+        let additionalHeaders = ["Authorization": "Bearer token123", "X-Custom": "CustomValue"]
 
-        request.addJSONHeaders(authHeader: authHeader)
+        request.addJSONHeaders(additionalHeaders: additionalHeaders)
 
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
@@ -475,9 +492,9 @@ struct APIClientTests {
         let endpointWithoutToken = MockEndpoint(endpoint: "public", token: nil)
         let endpointWithEmptyToken = MockEndpoint(endpoint: "empty", token: "")
 
-        #expect(endpointWithToken.authHeader?["Authorization"] == "Bearer abc123")
-        #expect(endpointWithoutToken.authHeader?.isEmpty == true)
-        #expect(endpointWithEmptyToken.authHeader?["Authorization"] == "Bearer ")
+        #expect(endpointWithToken.headers?["Authorization"] == "Bearer abc123")
+        #expect(endpointWithoutToken.headers?.isEmpty == true)
+        #expect(endpointWithEmptyToken.headers?["Authorization"] == "Bearer ")
 
         // Test equality
         let endpoint1 = MockEndpoint(endpoint: "test", token: "token")
@@ -636,7 +653,6 @@ struct APIClientTests {
         )!
 
         let errors: [BaseAPI.APIError] = [
-            .missingAuthHeader,
             .encodingFailed,
             .networkError("Connection timeout"),
             .invalidResponse(response: URLResponse()),
@@ -682,12 +698,12 @@ struct APIClientTests {
         #expect(failureRequest.shouldFail == true)
 
         // Test empty auth header
-        request.addJSONHeaders(authHeader: [:])
+        request.addJSONHeaders(additionalHeaders: [:])
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
 
         // Test header merging
-        request.addJSONHeaders(authHeader: ["Content-Type": "application/custom"])
+        request.addJSONHeaders(additionalHeaders: ["Content-Type": "application/custom"])
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/custom")
     }
 
@@ -721,18 +737,18 @@ struct APIClientTests {
         let endpoints = [
             MockEndpoint(endpoint: "users", token: "valid-token"),
             MockEndpoint(endpoint: "posts/123", token: "another-token"),
-            MockEndpoint(endpoint: "search?q=test", token: nil),
+            MockEndpoint(endpoint: "search", token: nil),
             MockEndpoint(endpoint: "admin/settings", token: "admin-token"),
         ]
 
         for endpoint in endpoints {
-            #expect(endpoint.url.absoluteString.contains(endpoint.endpoint))
+            #expect(endpoint.url.absoluteString.contains(endpoint.path))
             #expect(endpoint.stringValue == endpoint.endpoint)
 
             if let token = endpoint.token, !token.isEmpty {
-                #expect(endpoint.authHeader?["Authorization"] == "Bearer \(token)")
+                #expect(endpoint.headers?["Authorization"] == "Bearer \(token)")
             } else {
-                #expect(endpoint.authHeader?.isEmpty == true)
+                #expect(endpoint.headers?.isEmpty == true)
             }
         }
 
@@ -902,7 +918,7 @@ struct APIClientTests {
         // Verify endpoint and request can be structured for PATCH
         #expect(endpoint.url.absoluteString == "https://api.example.com/users/123/profile")
         #expect(endpoint.stringValue == "users/123/profile")
-        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+        #expect(endpoint.headers?["Authorization"] == "Bearer test-token")
 
         // Verify request is encodable
         let encoder = JSONEncoder()
@@ -952,7 +968,7 @@ struct APIClientTests {
         // Verify endpoint structure for DELETE
         #expect(endpoint.url.absoluteString == "https://api.example.com/users/123")
         #expect(endpoint.stringValue == "users/123")
-        #expect(endpoint.authHeader?["Authorization"] == "Bearer test-token")
+        #expect(endpoint.headers?["Authorization"] == "Bearer test-token")
     }
 
     @Test("DELETE request with various endpoints")
@@ -1003,8 +1019,222 @@ struct APIClientTests {
             #expect(endpoint.stringValue == endpoint.endpoint)
 
             if let token = endpoint.token, !token.isEmpty {
-                #expect(endpoint.authHeader?["Authorization"] == "Bearer \(token)")
+                #expect(endpoint.headers?["Authorization"] == "Bearer \(token)")
             }
         }
+    }
+
+    // MARK: - Request Interceptor Tests
+
+    @Test("Client initializes with interceptor")
+    func clientInitializesWithInterceptor() throws {
+        let interceptor = MockInterceptor(additionalHeaders: ["Authorization": "Bearer token"])
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(interceptor: interceptor)
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Client initializes without interceptor")
+    func clientInitializesWithoutInterceptor() throws {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>()
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("MockInterceptor adapts request with headers")
+    func mockInterceptorAdaptsRequest() async throws {
+        let interceptor = MockInterceptor(additionalHeaders: [
+            "Authorization": "Bearer my-token",
+            "X-API-Key": "key-123",
+        ])
+
+        var request = URLRequest(url: URL(string: "https://example.com")!)
+        request = try await interceptor.adapt(request)
+
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer my-token")
+        #expect(request.value(forHTTPHeaderField: "X-API-Key") == "key-123")
+    }
+
+    @Test("FailingInterceptor throws error")
+    func failingInterceptorThrowsError() async {
+        let interceptor = FailingInterceptor()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        do {
+            _ = try await interceptor.adapt(request)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            #expect(error is BaseAPI.APIError)
+        }
+    }
+
+    // MARK: - Interceptor Chain Tests
+
+    @Test("InterceptorChain applies interceptors in order")
+    func interceptorChainAppliesInOrder() async throws {
+        // Two interceptors that each add a header; second should not clobber first
+        let first = MockInterceptor(additionalHeaders: ["X-First": "1"])
+        let second = MockInterceptor(additionalHeaders: ["X-Second": "2"])
+        let chain = BaseAPI.InterceptorChain([first, second])
+
+        var request = URLRequest(url: URL(string: "https://example.com")!)
+        request = try await chain.adapt(request)
+
+        #expect(request.value(forHTTPHeaderField: "X-First") == "1")
+        #expect(request.value(forHTTPHeaderField: "X-Second") == "2")
+    }
+
+    @Test("InterceptorChain later interceptor overwrites same header")
+    func interceptorChainOverwrites() async throws {
+        let first = MockInterceptor(additionalHeaders: ["X-Token": "old"])
+        let second = MockInterceptor(additionalHeaders: ["X-Token": "new"])
+        let chain = BaseAPI.InterceptorChain([first, second])
+
+        var request = URLRequest(url: URL(string: "https://example.com")!)
+        request = try await chain.adapt(request)
+
+        #expect(request.value(forHTTPHeaderField: "X-Token") == "new")
+    }
+
+    @Test("InterceptorChain with empty interceptors is a no-op")
+    func interceptorChainEmpty() async throws {
+        let chain = BaseAPI.InterceptorChain([])
+        let original = URLRequest(url: URL(string: "https://example.com")!)
+        let adapted = try await chain.adapt(original)
+        #expect(adapted.url == original.url)
+        #expect(adapted.allHTTPHeaderFields == original.allHTTPHeaderFields)
+    }
+
+    @Test("InterceptorChain propagates first failing interceptor")
+    func interceptorChainPropagatesFailure() async {
+        let chain = BaseAPI.InterceptorChain([FailingInterceptor()])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        do {
+            _ = try await chain.adapt(request)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            #expect(error is BaseAPI.APIError)
+        }
+    }
+
+    @Test("InterceptorChain stops at first failing interceptor")
+    func interceptorChainStopsAtFailure() async {
+        // FailingInterceptor is first; second interceptor should never run
+        let headerRecorder = MockInterceptor(additionalHeaders: ["X-Ran": "yes"])
+        let chain = BaseAPI.InterceptorChain([FailingInterceptor(), headerRecorder])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        do {
+            _ = try await chain.adapt(request)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            // Error is from FailingInterceptor, not headerRecorder
+            #expect(error is BaseAPI.APIError)
+        }
+    }
+
+    // MARK: - RetryDecision Tests
+
+    @Test("RetryDecision doNotRetry")
+    func retryDecisionDoNotRetry() {
+        let decision = BaseAPI.RetryDecision.doNotRetry
+        if case .doNotRetry = decision {
+            #expect(Bool(true))
+        } else {
+            #expect(Bool(false), "Expected doNotRetry")
+        }
+    }
+
+    @Test("RetryDecision retry with delay")
+    func retryDecisionRetryWithDelay() {
+        let decision = BaseAPI.RetryDecision.retry(delay: 2.5)
+        if case .retry(let delay) = decision {
+            #expect(delay == 2.5)
+        } else {
+            #expect(Bool(false), "Expected retry")
+        }
+    }
+
+    @Test("RetryDecision retry with zero delay")
+    func retryDecisionRetryZeroDelay() {
+        let decision = BaseAPI.RetryDecision.retry(delay: 0)
+        if case .retry(let delay) = decision {
+            #expect(delay == 0)
+        } else {
+            #expect(Bool(false), "Expected retry with zero delay")
+        }
+    }
+
+    @Test("Default retry implementation returns doNotRetry")
+    func defaultRetryReturnsDoNotRetry() async {
+        let interceptor = MockInterceptor(additionalHeaders: [:])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let decision = await interceptor.retry(
+            request,
+            dueTo: BaseAPI.APIError.unknown,
+            attemptCount: 1
+        )
+        if case .doNotRetry = decision {
+            #expect(Bool(true))
+        } else {
+            #expect(Bool(false), "Default should be doNotRetry")
+        }
+    }
+
+    @Test("InterceptorChain retry returns doNotRetry when no interceptor retries")
+    func interceptorChainRetryNone() async {
+        let chain = BaseAPI.InterceptorChain([
+            MockInterceptor(additionalHeaders: [:]),
+            MockInterceptor(additionalHeaders: [:]),
+        ])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let decision = await chain.retry(request, dueTo: BaseAPI.APIError.unknown, attemptCount: 1)
+        if case .doNotRetry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Should be doNotRetry") }
+    }
+
+    @Test("InterceptorChain retry returns first retry decision")
+    func interceptorChainRetryFirstWins() async {
+        struct RetryingInterceptor: BaseAPI.RequestInterceptor {
+            let delay: TimeInterval
+            func adapt(_ request: URLRequest) async throws -> URLRequest { request }
+            func retry(_ request: URLRequest, dueTo error: Error, attemptCount: Int) async -> BaseAPI.RetryDecision {
+                .retry(delay: delay)
+            }
+        }
+        let chain = BaseAPI.InterceptorChain([
+            RetryingInterceptor(delay: 1.0),
+            RetryingInterceptor(delay: 99.0),  // should never be reached
+        ])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let decision = await chain.retry(request, dueTo: BaseAPI.APIError.unknown, attemptCount: 1)
+        if case .retry(let delay) = decision {
+            #expect(delay == 1.0)
+        } else {
+            #expect(Bool(false), "Should be retry with 1.0 delay")
+        }
+    }
+
+    // MARK: - Client with Interceptors Array Tests
+
+    @Test("Client initialises with interceptors array")
+    func clientInitializesWithInterceptorsArray() throws {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(interceptors: [
+            MockInterceptor(additionalHeaders: ["X-App": "test"]),
+            MockInterceptor(additionalHeaders: ["X-Version": "1"]),
+        ])
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Client initialises with empty interceptors array")
+    func clientInitializesWithEmptyInterceptors() throws {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(interceptors: [])
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Single-interceptor convenience init is equivalent to array init")
+    func singleInterceptorConvenienceInit() throws {
+        let interceptor = MockInterceptor(additionalHeaders: ["X-Auth": "token"])
+        let clientA = BaseAPI.BaseAPIClient<MockEndpoint>(interceptor: interceptor)
+        let clientB = BaseAPI.BaseAPIClient<MockEndpoint>(interceptors: [interceptor])
+        // Both should be the same type and not crash
+        #expect(type(of: clientA) == type(of: clientB))
     }
 }
