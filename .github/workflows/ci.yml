@@ -11,6 +11,13 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Homebrew swift-format
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/swift-format
+          key: brew-swift-format-${{ runner.os }}
       - name: Install swift-format
         run: brew install swift-format
       - name: Check formatting
