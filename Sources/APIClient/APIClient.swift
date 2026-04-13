@@ -21,21 +21,25 @@ extension BaseAPI {
         private let encoder: JSONEncoder
         private let decoder: JSONDecoder
         private let interceptorChain: InterceptorChain
+        private let validators: [any ResponseValidator]
         private let analytics: APIAnalytics?
         private let logger: APIClientLoggingProtocol?
         private let unauthorizedHandler: (@Sendable (Endpoint) -> Void)?
 
         // MARK: - Initialization
 
-        /// Create a client with an ordered list of interceptors.
+        /// Create a client with an ordered list of interceptors and response validators.
         ///
-        /// Interceptors are applied left-to-right during `adapt` and consulted
-        /// left-to-right for retry decisions (first `.retry` wins).
+        /// - Parameters:
+        ///   - interceptors: Applied left-to-right on every outgoing request.
+        ///   - validators: Run in order after each response is received; first failure throws.
+        ///     Defaults to ``StatusCodeValidator`` (accepts 2xx only).
         public init(
             sessionConfiguration: URLSessionConfiguration = .default,
             encoder: JSONEncoder = JSONEncoder(),
             decoder: JSONDecoder = JSONDecoder(),
             interceptors: [any RequestInterceptor] = [],
+            validators: [any ResponseValidator] = [StatusCodeValidator()],
             analytics: APIAnalytics? = nil,
             logger: APIClientLoggingProtocol? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
@@ -44,6 +48,7 @@ extension BaseAPI {
             self.encoder = encoder
             self.decoder = decoder
             self.interceptorChain = InterceptorChain(interceptors)
+            self.validators = validators
             self.analytics = analytics
             self.logger = logger
             self.unauthorizedHandler = unauthorizedHandler
@@ -55,6 +60,7 @@ extension BaseAPI {
             encoder: JSONEncoder = JSONEncoder(),
             decoder: JSONDecoder = JSONDecoder(),
             interceptor: (any RequestInterceptor)?,
+            validators: [any ResponseValidator] = [StatusCodeValidator()],
             analytics: APIAnalytics? = nil,
             logger: APIClientLoggingProtocol? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
@@ -64,6 +70,7 @@ extension BaseAPI {
                 encoder: encoder,
                 decoder: decoder,
                 interceptors: interceptor.map { [$0] } ?? [],
+                validators: validators,
                 analytics: analytics,
                 logger: logger,
                 unauthorizedHandler: unauthorizedHandler
@@ -348,7 +355,7 @@ extension BaseAPI {
                 logger?.info(
                     "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)"
                 )
-                try validateResponse(httpResponse, endpoint: endpoint)
+                try validateResponse(httpResponse, data: data, request: request, endpoint: endpoint)
                 logAnalytics(endpoint, method, startTime, true, httpResponse.statusCode, nil)
 
                 if printResponseBody {
@@ -471,6 +478,7 @@ extension BaseAPI {
                     return try handleResponse(
                         endpoint: endpoint,
                         method: method,
+                        request: request,
                         data: data,
                         urlResponse: urlResponse,
                         startTime: startTime,
@@ -505,6 +513,7 @@ extension BaseAPI {
         private func handleResponse<Response: Decodable>(
             endpoint: Endpoint,
             method: HTTPMethod,
+            request: URLRequest,
             data: Data,
             urlResponse: URLResponse,
             startTime: Date,
@@ -523,7 +532,7 @@ extension BaseAPI {
                 "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)"
             )
 
-            try validateResponse(httpResponse, endpoint: endpoint)
+            try validateResponse(httpResponse, data: data, request: request, endpoint: endpoint)
 
             let decodedResponse: Response
             do {
@@ -564,23 +573,32 @@ extension BaseAPI {
             return request
         }
 
-        private func validateResponse(_ response: HTTPURLResponse, endpoint: Endpoint) throws {
-            let statusCode = response.statusCode
-            guard (200...299).contains(statusCode) else {
-                if statusCode == 401 {
-                    logger?.error("unauthorized/incorrect auth token")
-                    unauthorizedHandler?(endpoint)
+        private func validateResponse(
+            _ response: HTTPURLResponse,
+            data: Data,
+            request: URLRequest,
+            endpoint: Endpoint
+        ) throws {
+            // Fire the 401 side-effect before validators so the handler always runs on unauthorized.
+            if response.statusCode == 401 {
+                logger?.error("unauthorized/incorrect auth token")
+                unauthorizedHandler?(endpoint)
+            }
+
+            for validator in validators {
+                do {
+                    try validator.validate(response, data: data, for: request)
+                } catch {
+                    let apiError = error as? APIError ?? APIError.serverError(
+                        response: response,
+                        code: response.statusCode,
+                        requestID: response.value(forHTTPHeaderField: "x-request-id") ?? "N/A"
+                    )
+                    logger?.error(
+                        "\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "Validation failed")"
+                    )
+                    throw apiError
                 }
-                let requestId = response.value(forHTTPHeaderField: "x-request-id") ?? "N/A"
-                let error = APIError.serverError(
-                    response: response,
-                    code: statusCode,
-                    requestID: requestId
-                )
-                logger?.error(
-                    "\(endpoint.stringValue) REQUEST | error: \(error.errorDescription ?? "Server error")"
-                )
-                throw error
             }
         }
 

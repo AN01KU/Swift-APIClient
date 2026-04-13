@@ -1237,4 +1237,203 @@ struct APIClientTests {
         // Both should be the same type and not crash
         #expect(type(of: clientA) == type(of: clientB))
     }
+
+    // MARK: - ResponseValidator Tests
+
+    @Test("StatusCodeValidator accepts 2xx responses")
+    func statusCodeValidatorAccepts2xx() throws {
+        let validator = BaseAPI.StatusCodeValidator()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for code in [200, 201, 204, 299] {
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!,
+                statusCode: code,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            // Should not throw
+            try validator.validate(response, data: Data(), for: request)
+        }
+    }
+
+    @Test("StatusCodeValidator rejects non-2xx responses")
+    func statusCodeValidatorRejectsNon2xx() throws {
+        let validator = BaseAPI.StatusCodeValidator()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for code in [400, 401, 403, 404, 409, 422, 500, 503] {
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!,
+                statusCode: code,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            do {
+                try validator.validate(response, data: Data(), for: request)
+                #expect(Bool(false), "Should have thrown for status \(code)")
+            } catch let error as BaseAPI.APIError {
+                if case .serverError(_, let errorCode, _) = error {
+                    #expect(errorCode == code)
+                } else {
+                    #expect(Bool(false), "Expected .serverError, got \(error)")
+                }
+            }
+        }
+    }
+
+    @Test("StatusCodeValidator includes x-request-id from response headers")
+    func statusCodeValidatorIncludesRequestId() throws {
+        let validator = BaseAPI.StatusCodeValidator()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!,
+            statusCode: 500,
+            httpVersion: nil,
+            headerFields: ["x-request-id": "req-abc-123"]
+        )!
+        do {
+            try validator.validate(response, data: Data(), for: request)
+            #expect(Bool(false), "Should have thrown")
+        } catch let error as BaseAPI.APIError {
+            if case .serverError(_, _, let requestID) = error {
+                #expect(requestID == "req-abc-123")
+            } else {
+                #expect(Bool(false), "Expected .serverError")
+            }
+        }
+    }
+
+    @Test("StatusCodeValidator uses N/A when x-request-id header is absent")
+    func statusCodeValidatorFallbackRequestId() throws {
+        let validator = BaseAPI.StatusCodeValidator()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!,
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        do {
+            try validator.validate(response, data: Data(), for: request)
+            #expect(Bool(false), "Should have thrown")
+        } catch let error as BaseAPI.APIError {
+            if case .serverError(_, _, let requestID) = error {
+                #expect(requestID == "N/A")
+            } else {
+                #expect(Bool(false), "Expected .serverError")
+            }
+        }
+    }
+
+    @Test("AcceptedStatusCodesValidator accepts only specified codes")
+    func acceptedStatusCodesValidatorAcceptsSpecified() throws {
+        let validator = BaseAPI.AcceptedStatusCodesValidator([200, 201, 304])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for code in [200, 201, 304] {
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!,
+                statusCode: code,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            try validator.validate(response, data: Data(), for: request)
+        }
+    }
+
+    @Test("AcceptedStatusCodesValidator rejects unspecified codes")
+    func acceptedStatusCodesValidatorRejectsOthers() throws {
+        let validator = BaseAPI.AcceptedStatusCodesValidator([200, 201])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for code in [204, 400, 500] {
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!,
+                statusCode: code,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            do {
+                try validator.validate(response, data: Data(), for: request)
+                #expect(Bool(false), "Should have thrown for status \(code)")
+            } catch {
+                #expect(error is BaseAPI.APIError)
+            }
+        }
+    }
+
+    @Test("AcceptedStatusCodesValidator with single code")
+    func acceptedStatusCodesValidatorSingleCode() throws {
+        let validator = BaseAPI.AcceptedStatusCodesValidator([200])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        let ok = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        try validator.validate(ok, data: Data(), for: request)
+
+        let notOk = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 201, httpVersion: nil, headerFields: nil)!
+        #expect(throws: (any Error).self) {
+            try validator.validate(notOk, data: Data(), for: request)
+        }
+    }
+
+    @Test("Client init with custom validators")
+    func clientInitWithCustomValidators() throws {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+            validators: [BaseAPI.AcceptedStatusCodesValidator([200, 201, 204])]
+        )
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Client init with empty validators array")
+    func clientInitWithEmptyValidators() throws {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(validators: [])
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Client init with default validators uses StatusCodeValidator")
+    func clientInitDefaultValidators() throws {
+        // Default init should compile and succeed (StatusCodeValidator is the default)
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>()
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Client convenience init accepts validators parameter")
+    func clientConvenienceInitWithValidators() throws {
+        let interceptor = MockInterceptor(additionalHeaders: ["X-Auth": "token"])
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+            interceptor: interceptor,
+            validators: [BaseAPI.StatusCodeValidator()]
+        )
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+    @Test("Custom ResponseValidator protocol conformance")
+    func customResponseValidatorConformance() throws {
+        struct NoOpValidator: BaseAPI.ResponseValidator {
+            func validate(_ response: HTTPURLResponse, data: Data, for request: URLRequest) throws {}
+        }
+        struct AlwaysFailValidator: BaseAPI.ResponseValidator {
+            func validate(_ response: HTTPURLResponse, data: Data, for request: URLRequest) throws {
+                throw BaseAPI.APIError.unknown
+            }
+        }
+
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+
+        let noOp = NoOpValidator()
+        try noOp.validate(response, data: Data(), for: request)  // Should not throw
+
+        let alwaysFail = AlwaysFailValidator()
+        do {
+            try alwaysFail.validate(response, data: Data(), for: request)
+            #expect(Bool(false), "Should have thrown")
+        } catch {
+            #expect(error is BaseAPI.APIError)
+        }
+    }
 }
