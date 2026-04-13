@@ -81,7 +81,7 @@ struct CreateRepoRequest: Codable {
 }
 
 // 4. Analytics tracking (optional)
-class DemoAnalytics: BaseAPI.APIAnalytics {
+final class DemoAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
     func addAnalytics(
         endpoint: String,
         method: String,
@@ -122,8 +122,7 @@ class APIClientDemo {
 
         do {
             let response: BaseAPI.APIResponse<GitHubUser> = try await client.get(
-                .user(username: "torvalds"),
-                printResponseBody: true
+                .user(username: "torvalds")
             )
 
             let user = response.data
@@ -165,9 +164,7 @@ class APIClientDemo {
         do {
             let response: BaseAPI.APIResponse<GitHubRepo> = try await client.post(
                 .createRepo(name: newRepo.name, description: newRepo.description),
-                body: newRepo,
-                printRequestBody: true,
-                printResponseBody: true
+                body: newRepo
             )
 
             let repo = response.data
@@ -234,8 +231,7 @@ class APIClientDemo {
             let response = try await client.multipartUpload(
                 .createRepo(name: "upload-test", description: "Upload test"),
                 method: .post,
-                data: multipartData,
-                printRequestBody: true
+                data: multipartData
             )
 
             print("✅ Upload completed with status: \(response.statusCode)")

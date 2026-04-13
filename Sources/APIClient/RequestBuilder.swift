@@ -56,7 +56,7 @@ extension BaseAPI {
         let endpoint: Endpoint
         let client: BaseAPIClient<Endpoint>
 
-        var httpMethod: BaseAPIClient<Endpoint>.HTTPMethod = .get
+        var httpMethod: BaseAPI.HTTPMethod = .get
         var additionalHeaders: [String: String] = [:]
         var body: RequestBody = .none
         var timeoutInterval: TimeInterval? = nil
@@ -67,7 +67,7 @@ extension BaseAPI {
         // MARK: - Fluent modifiers
 
         /// Set the HTTP method. Defaults to `.get`.
-        public func method(_ method: BaseAPIClient<Endpoint>.HTTPMethod) -> Self {
+        public func method(_ method: BaseAPI.HTTPMethod) -> Self {
             var copy = self; copy.httpMethod = method; return copy
         }
 
