@@ -2,7 +2,7 @@ import Foundation
 
 extension BaseAPI {
 
-    /// Generic HTTP API client with async/await and callback support.
+    /// Generic HTTP API client.
     ///
     /// Parameterized on a concrete ``APIEndpoint`` type. Subclass or instantiate directly.
     /// All network execution is delegated to ``RequestExecution``.
@@ -83,20 +83,6 @@ extension BaseAPI {
             try await request(endpoint).response()
         }
 
-        public func get<Response>(
-            _ endpoint: Endpoint,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await get(endpoint)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         // MARK: - POST
 
         public func post<Request: Encodable>(
@@ -106,40 +92,11 @@ extension BaseAPI {
             try await request(endpoint).method(.post).body(body).responseURL()
         }
 
-        public func post<Request>(
-            _ endpoint: Endpoint,
-            body: Request,
-            then callback: @escaping @Sendable (APIURLResult) -> Void
-        ) where Request: Encodable & Sendable {
-            Task {
-                do {
-                    callback(.success(try await self.post(endpoint, body: body) as HTTPURLResponse))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         public func post<Request: Encodable, Response: Decodable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.post).body(body).response()
-        }
-
-        public func post<Request, Response>(
-            _ endpoint: Endpoint,
-            body: Request,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable, Request: Encodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await self.post(endpoint, body: body)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
         }
 
         // MARK: - PUT
@@ -151,20 +108,6 @@ extension BaseAPI {
             try await request(endpoint).method(.put).body(body).responseURL()
         }
 
-        public func put<Request>(
-            _ endpoint: Endpoint,
-            body: Request,
-            then callback: @escaping @Sendable (APIURLResult) -> Void
-        ) where Request: Encodable & Sendable {
-            Task {
-                do {
-                    callback(.success(try await self.put(endpoint, body: body) as HTTPURLResponse))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         // MARK: - PATCH
 
         public func patch<Request: Encodable>(
@@ -174,55 +117,14 @@ extension BaseAPI {
             try await request(endpoint).method(.patch).body(body).responseURL()
         }
 
-        public func patch<Request>(
-            _ endpoint: Endpoint,
-            body: Request,
-            then callback: @escaping @Sendable (APIURLResult) -> Void
-        ) where Request: Encodable & Sendable {
-            Task {
-                do {
-                    callback(.success(try await self.patch(endpoint, body: body) as HTTPURLResponse))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         // MARK: - DELETE
 
         public func delete(_ endpoint: Endpoint) async throws -> HTTPURLResponse {
             try await request(endpoint).method(.delete).responseURL()
         }
 
-        public func delete(
-            _ endpoint: Endpoint,
-            then callback: @escaping @Sendable (APIURLResult) -> Void
-        ) {
-            Task {
-                do {
-                    callback(.success(try await self.delete(endpoint) as HTTPURLResponse))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         public func delete<Response: Decodable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.delete).response()
-        }
-
-        public func delete<Response>(
-            _ endpoint: Endpoint,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await self.delete(endpoint)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
         }
 
         // MARK: - Multipart Upload
@@ -262,21 +164,6 @@ extension BaseAPI {
             }
         }
 
-        public func multipartRequest(
-            _ endpoint: Endpoint,
-            method: BaseAPI.HTTPMethod,
-            body: MultipartData,
-            then callback: @escaping @Sendable (APIURLResult) -> Void
-        ) {
-            Task {
-                do {
-                    callback(.success(try await multipartUpload(endpoint, method: method, data: body)))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         // MARK: - Raw Data Body
 
         public func post<Response: Decodable>(
@@ -286,21 +173,6 @@ extension BaseAPI {
             try await request(endpoint).method(.post).body(raw: rawBody).response()
         }
 
-        public func post<Response>(
-            _ endpoint: Endpoint,
-            rawBody: Data,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await post(endpoint, rawBody: rawBody)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         public func put<Response: Decodable>(
             _ endpoint: Endpoint,
             rawBody: Data
@@ -308,41 +180,11 @@ extension BaseAPI {
             try await request(endpoint).method(.put).body(raw: rawBody).response()
         }
 
-        public func put<Response>(
-            _ endpoint: Endpoint,
-            rawBody: Data,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await put(endpoint, rawBody: rawBody)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
-        }
-
         public func patch<Response: Decodable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.patch).body(raw: rawBody).response()
-        }
-
-        public func patch<Response>(
-            _ endpoint: Endpoint,
-            rawBody: Data,
-            then callback: @escaping @Sendable (APIResult<Response>) -> Void
-        ) where Response: Decodable & Sendable {
-            Task {
-                do {
-                    let result: APIResponse<Response> = try await patch(endpoint, rawBody: rawBody)
-                    callback(.success(result))
-                } catch {
-                    callback(.failure(error as? APIError ?? .unknown))
-                }
-            }
         }
 
         // MARK: - RequestBuilder Entry Point

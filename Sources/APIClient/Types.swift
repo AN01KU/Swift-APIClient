@@ -5,8 +5,6 @@ public enum BaseAPI {
 
     // MARK: - Type Aliases
 
-    public typealias APIURLResult = Result<HTTPURLResponse, APIError>
-    public typealias APIResult<T> = Result<APIResponse<T>, APIError>
     public typealias APIResponse<T> = (data: T, response: HTTPURLResponse)
 
     // MARK: - Data Structures

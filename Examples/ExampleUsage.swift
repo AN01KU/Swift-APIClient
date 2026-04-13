@@ -175,40 +175,6 @@ class APIClientDemo {
         }
     }
 
-    // MARK: - Callback Examples
-
-    func fetchUserCallback() {
-        print("\n🔄 Fetching user with callback...")
-
-        client.get(.user(username: "torvalds")) { (result: BaseAPI.APIResult<GitHubUser>) in
-            switch result {
-            case .success(let response):
-                let user = response.data
-                print("👤 User (callback): \(user.login)")
-
-            case .failure(let error):
-                self.handleError(error)
-            }
-        }
-    }
-
-    func fetchReposCallback() {
-        print("\n📚 Fetching repositories with callback...")
-
-        client.get(.repos(username: "torvalds")) { (result: BaseAPI.APIResult<[GitHubRepo]>) in
-            switch result {
-            case .success(let response):
-                let repos = response.data.prefix(2)
-                for repo in repos {
-                    print("📦 \(repo.name) (callback)")
-                }
-
-            case .failure(let error):
-                self.handleError(error)
-            }
-        }
-    }
-
     // MARK: - Multipart Upload Example
 
     func uploadFileExample() async {
