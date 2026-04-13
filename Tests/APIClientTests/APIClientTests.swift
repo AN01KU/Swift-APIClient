@@ -354,7 +354,7 @@ struct APIClientTests {
         #expect(BaseAPI.HTTPMethod.put.rawValue == "PUT")
         #expect(BaseAPI.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.HTTPMethod.delete.rawValue == "DELETE")
-        #expect(BaseAPI.HTTPMethod.allCases.count == 5)
+        #expect(BaseAPI.HTTPMethod.allCases.count == 7)
     }
 
     @Test("HTTPMethod comprehensive coverage")
@@ -364,7 +364,14 @@ struct APIClientTests {
             #expect(!method.rawValue.isEmpty)
             #expect(method.rawValue.allSatisfy { $0.isUppercase })
         }
-        #expect(Set(methods.map { $0.rawValue }) == ["GET", "POST", "PUT", "PATCH", "DELETE"])
+        #expect(Set(methods.map { $0.rawValue }) == ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+    }
+
+    @Test("HTTPMethod includes HEAD and OPTIONS")
+    func httpMethodHeadAndOptions() throws {
+        #expect(BaseAPI.HTTPMethod.head.rawValue == "HEAD")
+        #expect(BaseAPI.HTTPMethod.options.rawValue == "OPTIONS")
+        #expect(BaseAPI.HTTPMethod.allCases.count == 7)
     }
 
     // MARK: - Analytics Tests

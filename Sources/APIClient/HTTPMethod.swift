@@ -8,5 +8,7 @@ extension BaseAPI {
         case put = "PUT"
         case patch = "PATCH"
         case delete = "DELETE"
+        case head = "HEAD"
+        case options = "OPTIONS"
     }
 }
