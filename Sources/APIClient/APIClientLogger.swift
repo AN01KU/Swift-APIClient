@@ -1,27 +1,36 @@
 import Foundation
+import os.log
 
-/// APIClient-specific logger that conforms to APIClientLoggingProtocol
-/// Simple implementation that prints logs to console
+/// Concrete ``BaseAPI.APIClientLoggingProtocol`` implementation backed by `os.Logger`.
+///
+/// Logs appear in Console.app and `log stream` under the subsystem `APIClient`.
+/// Pass a custom `subsystem` and `category` when you need to filter logs per target.
 public final class APIClientLogger: BaseAPI.APIClientLoggingProtocol, Sendable {
 
-    /// Initialize the logger
-    public init() {}
+    private let logger: Logger
 
-    // MARK: - APIClientLoggingProtocol Implementation
+    /// - Parameters:
+    ///   - subsystem: Reverse-DNS identifier for the subsystem (default: `"APIClient"`).
+    ///   - category:  Log category for filtering (default: `"Network"`).
+    public init(subsystem: String = "APIClient", category: String = "Network") {
+        self.logger = Logger(subsystem: subsystem, category: category)
+    }
+
+    // MARK: - APIClientLoggingProtocol
 
     public func info(_ value: String) {
-        print("🔷 [APIClient INFO] \(value)")
+        logger.info("\(value, privacy: .public)")
     }
 
     public func debug(_ value: String) {
-        print("🚀 [APIClient DEBUG] \(value)")
+        logger.debug("\(value, privacy: .public)")
     }
 
     public func error(_ value: String) {
-        print("❌ [APIClient ERROR] \(value)")
+        logger.error("\(value, privacy: .public)")
     }
 
     public func warn(_ value: String) {
-        print("🔶 [APIClient WARN] \(value)")
+        logger.warning("\(value, privacy: .public)")
     }
 }
