@@ -1,146 +1,264 @@
 # APIClient
 
-A modern, type-safe HTTP API client built with Swift's async/await, providing a robust foundation for network communication in Swift applications.
+A type-safe, async/await HTTP client for Swift. Built on `URLSession`, designed to be subclassed or composed — not wrapped in another layer.
 
-## Features
+## Requirements
 
-- Modern Swift with async/await and callback support
-- Type-safe endpoints and responses using protocols
-- Built-in analytics tracking for API calls
-- Multipart upload support for file uploads
-- Flexible configuration with custom session settings
-- Comprehensive error handling with detailed information
-- Designed for easy testing and mocking
+- Swift 5.10+
+- macOS 12+ / iOS 15+
 
 ## Installation
 
-Add APIClient to your project using Swift Package Manager:
-
 ```swift
+// Package.swift
 dependencies: [
     .package(url: "https://github.com/yourusername/APIClient.git", from: "1.0.0")
 ]
 ```
 
+## Overview
+
+The package is namespaced under `BaseAPI` to avoid polluting the global scope. The core types are:
+
+| Type | Role |
+|------|------|
+| `BaseAPI.APIEndpoint` | Protocol your endpoint enum conforms to |
+| `BaseAPI.BaseAPIClient<Endpoint>` | The generic client — instantiate or subclass |
+| `BaseAPI.RequestBuilder<Endpoint>` | Fluent builder for one-off request customisation |
+| `BaseAPI.RequestInterceptor` | Mutate outgoing requests; optionally retry on failure |
+| `BaseAPI.ResponseValidator` | Validate responses before decoding |
+| `BaseAPI.RequestEventMonitor` | Observe request lifecycle events |
+
 ## Quick Start
 
-### 1. Define Your API Endpoints
-
-Create an enum conforming to `BaseAPI.APIEndpoint`:
+### 1. Define endpoints
 
 ```swift
-enum MyAPI: BaseAPI.APIEndpoint {
-    case users
-    case user(id: String)
+enum GitHubAPI: BaseAPI.APIEndpoint {
+    case user(login: String)
+    case repos(login: String)
 
-    var url: URL { /* return endpoint URL */ }
-    var stringValue: String { /* return string representation */ }
-    var authHeader: [String: String]? { /* return auth headers */ }
-}
-```
+    var baseURL: URL { URL(string: "https://api.github.com")! }
 
-### 2. Create Data Models
-
-Define Codable structs for your API responses:
-
-```swift
-struct User: Codable {
-    let id: String
-    let name: String
-    let email: String
-}
-```
-
-### 3. Use the API Client
-
-```swift
-let client = BaseAPI.BaseAPIClient<MyAPI>()
-
-// Async/await
-let response: BaseAPI.APIResponse<User> = try await client.get(.user(id: "123"))
-let user = response.data
-
-// Callback-based
-client.get(.user(id: "123")) { (result: BaseAPI.APIResult<User>) in
-    // Handle result
-}
-```
-
-## Complete Example
-
-For a comprehensive implementation example including:
-- Complete API endpoint definitions
-- Data model implementations
-- Error handling strategies
-- Analytics integration
-- Multipart file uploads
-- Advanced configuration
-
-See: [Examples/ExampleUsage.swift](Examples/ExampleUsage.swift)
-
-## Configuration
-
-### BaseAPIClient Initialization
-
-```swift
-let client = BaseAPI.BaseAPIClient<YourEndpoint>(
-    sessionConfiguration: URLSessionConfiguration.default,
-    encoder: JSONEncoder(),
-    decoder: JSONDecoder(),
-    analytics: YourAnalytics(),
-    logger: APIClientLogger(),
-    unauthorizedHandler: { endpoint in
-        // Handle 401 responses
+    var path: String {
+        switch self {
+        case .user(let login):  return "/users/\(login)"
+        case .repos(let login): return "/users/\(login)/repos"
+        }
     }
+
+    var headers: [String: String]? {
+        ["Accept": "application/vnd.github+json"]
+    }
+
+    var queryParameters: [String: String]? { nil }
+}
+```
+
+The default `url` implementation on `APIEndpoint` constructs the final URL from `baseURL + path + queryParameters`. Override it only if you need non-standard URL construction.
+
+### 2. Create a client
+
+```swift
+let client = BaseAPI.BaseAPIClient<GitHubAPI>()
+```
+
+### 3. Make requests
+
+```swift
+struct GitHubUser: Decodable {
+    let login: String
+    let publicRepos: Int
+}
+
+// Decoded response
+let (user, httpResponse): BaseAPI.APIResponse<GitHubUser> = try await client.get(.user(login: "torvalds"))
+
+// Body-less response (returns HTTPURLResponse)
+let response: HTTPURLResponse = try await client.delete(.user(login: "torvalds"))
+```
+
+`APIResponse<T>` is a named tuple: `(data: T, response: HTTPURLResponse)`.
+
+## HTTP Methods
+
+The shorthand methods on `BaseAPIClient` cover the common cases:
+
+```swift
+// GET — decoded body
+let (user, _): BaseAPI.APIResponse<User> = try await client.get(.profile)
+
+// POST — no response body
+let http: HTTPURLResponse = try await client.post(.users, body: newUser)
+
+// POST — decoded response body
+let (created, _): BaseAPI.APIResponse<User> = try await client.post(.users, body: newUser)
+
+// PUT / PATCH — returns HTTPURLResponse
+let http: HTTPURLResponse = try await client.put(.user(id: "1"), body: update)
+let http: HTTPURLResponse = try await client.patch(.user(id: "1"), body: patch)
+
+// DELETE — returns HTTPURLResponse
+let http: HTTPURLResponse = try await client.delete(.user(id: "1"))
+
+// DELETE — decoded response body
+let (body, _): BaseAPI.APIResponse<DeleteResult> = try await client.delete(.user(id: "1"))
+
+// Raw Data body
+let (result, _): BaseAPI.APIResponse<Result> = try await client.post(.ingest, rawBody: data)
+
+// Multipart upload
+let http: HTTPURLResponse = try await client.multipartUpload(
+    .upload,
+    method: .post,
+    data: BaseAPI.MultipartData(fileKeyName: "file", fileURLs: [fileURL])
 )
 ```
 
-### Configuration Parameters
+## RequestBuilder
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `sessionConfiguration` | `URLSessionConfiguration` | Custom session settings |
-| `encoder` | `JSONEncoder` | Custom JSON encoder |
-| `decoder` | `JSONDecoder` | Custom JSON decoder |
-| `analytics` | `APIAnalytics?` | Analytics tracking implementation |
-| `logger` | `APIClientLoggingProtocol?` | Logging implementation |
-| `unauthorizedHandler` | `((Endpoint) -> Void)?` | Handler for 401 responses |
-
-## Protocols
-
-### APIEndpoint Protocol
+For anything beyond the shorthand methods, use `client.request(_:)` to get a fluent builder:
 
 ```swift
-public protocol APIEndpoint: Equatable {
-    var url: URL { get }
-    var stringValue: String { get }
-    var authHeader: [String: String]? { get }
+// Custom headers, timeout, and per-request validator
+let (raw, _): BaseAPI.APIResponse<Data> = try await client
+    .request(.download(id: "abc"))
+    .headers(["X-Request-ID": UUID().uuidString])
+    .timeout(60)
+    .validators([BaseAPI.AcceptedStatusCodesValidator([200, 304])])
+    .responseData()
+
+// Form-encoded body (e.g. OAuth token endpoint)
+let (token, _): BaseAPI.APIResponse<TokenResponse> = try await client
+    .request(.token)
+    .method(.post)
+    .body(form: ["grant_type": "client_credentials", "scope": "read"])
+    .response()
+```
+
+Available terminal methods on `RequestBuilder`:
+
+| Method | Returns |
+|--------|---------|
+| `.response()` | `APIResponse<T>` — decoded body |
+| `.responseURL()` | `HTTPURLResponse` — ignores body |
+| `.responseData()` | `APIResponse<Data>` — raw bytes |
+| `.download()` | `AsyncThrowingStream<DownloadProgress, Error>` |
+
+## Interceptors
+
+Interceptors run before every request. Use them for auth header injection, token refresh, signing, etc.
+
+```swift
+struct BearerTokenInterceptor: BaseAPI.RequestInterceptor {
+    let tokenStore: TokenStore
+
+    func adapt(_ request: URLRequest) async throws -> URLRequest {
+        var r = request
+        let token = try await tokenStore.validToken()
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return r
+    }
+}
+
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    interceptors: [BearerTokenInterceptor(tokenStore: session)]
+)
+```
+
+Multiple interceptors are applied left-to-right. For retry logic, use the built-in `RetryPolicy`:
+
+```swift
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    interceptors: [
+        BearerTokenInterceptor(tokenStore: session),
+        BaseAPI.RetryPolicy(
+            maxAttempts: 3,
+            backoff: .exponential(base: 1, multiplier: 2, maxDelay: 30),
+            retryableStatusCodes: [429, 500, 502, 503, 504]
+        )
+    ]
+)
+```
+
+`BackoffStrategy` options: `.none`, `.constant(_:)`, `.exponential(base:multiplier:maxDelay:)`.
+
+## Response Validators
+
+Validators run after a response is received but before the body is decoded. Throw to reject the response.
+
+The default is `StatusCodeValidator`, which accepts 2xx and throws `APIError.serverError` for anything else.
+
+Supply a custom set to override per-client or per-request:
+
+```swift
+// Client level — accept only 200 and 201
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    validators: [BaseAPI.AcceptedStatusCodesValidator([200, 201])]
+)
+
+// Request level — override just for this call
+let (data, _) = try await client
+    .request(.cached)
+    .validators([BaseAPI.AcceptedStatusCodesValidator([200, 304])])
+    .responseData()
+```
+
+## Event Monitors
+
+Implement `RequestEventMonitor` to observe the request lifecycle. All methods have default no-op implementations — override only what you need.
+
+```swift
+struct MetricsMonitor: BaseAPI.RequestEventMonitor {
+    func requestDidFinish(
+        _ request: URLRequest, endpoint: String, method: String,
+        response: HTTPURLResponse, duration: TimeInterval
+    ) {
+        Analytics.record(endpoint: endpoint, statusCode: response.statusCode, duration: duration)
+    }
+
+    func requestDidFail(
+        _ request: URLRequest, endpoint: String, method: String,
+        error: BaseAPI.APIError, duration: TimeInterval
+    ) {
+        Analytics.recordError(endpoint: endpoint, error: error, duration: duration)
+    }
+}
+
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    eventMonitors: [MetricsMonitor()]
+)
+```
+
+## Downloads with Progress
+
+```swift
+for try await progress in client.download(.file(id: "report.pdf")) {
+    if let file = progress.data {
+        try save(file)
+    } else {
+        updateUI(fraction: progress.fraction ?? 0)
+    }
 }
 ```
 
-### APIAnalytics Protocol
+`DownloadProgress` provides `bytesReceived`, `totalBytesExpected`, `fraction` (nil when `Content-Length` is absent), and `data` (non-nil only on the final event).
+
+The builder variant lets you add headers or other modifiers:
 
 ```swift
-public protocol APIAnalytics {
-    func addAnalytics(
-        endpoint: String,
-        method: String,
-        startTime: Date,
-        endTime: Date,
-        success: Bool,
-        statusCode: Int?,
-        error: String?
-    )
-}
+let stream = client
+    .request(.file(id: "report.pdf"))
+    .headers(["Authorization": "Bearer \(token)"])
+    .download()
 ```
 
 ## Error Handling
 
-The APIClient provides comprehensive error handling:
+All methods throw `BaseAPI.APIError`:
 
 ```swift
 public enum APIError: Error {
-    case missingAuthHeader
     case encodingFailed
     case networkError(String)
     case invalidResponse(response: URLResponse)
@@ -150,112 +268,89 @@ public enum APIError: Error {
 }
 ```
 
-Each error provides detailed information and appropriate handling context.
+`.serverError` carries the `x-request-id` response header when present. Both `.serverError` and `.decodingFailed` expose the original `HTTPURLResponse` via `.getResponse()` for callers that need to inspect headers on failure.
 
-## HTTP Methods
-
-The APIClient supports all standard HTTP methods:
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| GET | `get<Response>(_:)` | Retrieve data from endpoint |
-| POST | `post<Request, Response>(_:body:)` | Send data and receive response |
-| PUT | `put<Request>(_:body:)` | Update entire resource |
-| PATCH | `patch<Request>(_:body:)` | Partial resource update |
-| DELETE | `delete(_:)` / `delete<Response>(_:)` | Delete resource, optionally with response |
-| Multipart | `multipartUpload(_:method:data:)` | Upload files with form data |
-
-All methods support both async/await and callback-based patterns.
-
-### Examples
-
-**GET with async/await:**
 ```swift
-let response: BaseAPI.APIResponse<User> = try await client.get(.user(id: "123"))
+do {
+    let (user, _): BaseAPI.APIResponse<User> = try await client.get(.profile)
+} catch let error as BaseAPI.APIError {
+    switch error {
+    case .serverError(let response, let code, let requestID):
+        logger.error("HTTP \(code), request-id: \(requestID)")
+    case .decodingFailed(let response, let description):
+        logger.error("Decode failed for \(response.url?.path ?? ""): \(description)")
+    case .networkError(let message):
+        logger.error("Network: \(message)")
+    default:
+        break
+    }
+}
 ```
 
-**POST with async/await:**
+## Unauthorized Handling
+
+Pass an `unauthorizedHandler` to be called synchronously on any 401 before the error is thrown — useful for triggering a logout or a token refresh flow that operates outside the interceptor chain:
+
 ```swift
-let request = CreateUserRequest(name: "John", email: "john@example.com")
-let response: BaseAPI.APIResponse<User> = try await client.post(.users, body: request)
+let client = BaseAPI.BaseAPIClient<MyAPI>(
+    unauthorizedHandler: { endpoint in
+        SessionManager.shared.logout()
+    }
+)
 ```
 
-**PATCH with async/await:**
-```swift
-let updates = UserUpdate(name: "Jane")
-let response: HTTPURLResponse = try await client.patch(.user(id: "123"), body: updates)
-```
+## Subclassing
 
-**DELETE with async/await:**
-```swift
-let response: HTTPURLResponse = try await client.delete(.user(id: "123"))
-```
+`BaseAPIClient` is `open`. Subclass to add domain-specific convenience methods:
 
-**Callback-based (all methods support this):**
 ```swift
-client.get(.user(id: "123")) { (result: BaseAPI.APIResult<User>) in
-    switch result {
-    case .success(let response):
-        let user = response.data
-    case .failure(let error):
-        // Handle error
+final class GitHubClient: BaseAPI.BaseAPIClient<GitHubAPI> {
+    func currentUser() async throws -> GitHubUser {
+        try await get(.user(login: "me")).data
+    }
+
+    func createRepo(name: String, private: Bool) async throws -> HTTPURLResponse {
+        try await post(.repos, body: CreateRepoRequest(name: name, isPrivate: `private`))
     }
 }
 ```
 
 ## Testing
 
-The package includes comprehensive tests covering all functionality:
-
-```bash
-swift test
-```
-
-Test coverage includes:
-- All HTTP methods (GET, POST, PUT, PATCH, DELETE)
-- Async/await and callback patterns
-- Error handling and edge cases
-- Analytics and logging integration
-- Multipart upload functionality
-- Authentication handling
-- Data encoding/decoding
-
-For testing your implementation, create mock endpoints and use dependency injection patterns supported by the client design:
+The client uses standard `URLSession`, so intercept at the `URLProtocol` level — no wrapper or interface needed:
 
 ```swift
-struct MockEndpoint: BaseAPI.APIEndpoint {
-    let endpoint: String
-    let token: String?
+class MockURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) -> (Data, HTTPURLResponse))?
 
-    var url: URL { /* mock URL */ }
-    var stringValue: String { endpoint }
-    var authHeader: [String: String]? { /* mock auth */ }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.handler else { return }
+        let (data, response) = handler(request)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
-let client = BaseAPI.BaseAPIClient<MockEndpoint>()
+// In your test
+let config = URLSessionConfiguration.ephemeral
+config.protocolClasses = [MockURLProtocol.self]
+let client = BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: config)
 ```
 
-## Formatting
+## Development
 
-```
+```bash
+swift build
+swift test
 swift-format -i ./Sources ./Tests --recursive
 ```
 
-## Requirements
-
-- Swift 5.9+
-- macOS 12+ / iOS 13+
-- Foundation framework
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Follow Swift API Design Guidelines
-6. Submit a pull request
-
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).
