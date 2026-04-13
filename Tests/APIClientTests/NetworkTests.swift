@@ -1083,11 +1083,17 @@ struct NetworkTests {
             #expect(bodyString?.contains("alice") == true)
         }
 
-        @Test("builder .body(multipart:) goes through retry logic")
+        @Test("builder .body(multipart:) goes through retry logic with identical body each attempt")
         func builderMultipartParticipatesInRetry() async throws {
             let attemptCount = ActorBox<Int>(0)
+            let capturedBodies = ActorBox<[Data]>([])
             MockURLProtocol.handler = { req in
                 await attemptCount.set(await attemptCount.value + 1)
+                if let body = req.httpBody {
+                    var bodies = await capturedBodies.value
+                    bodies.append(body)
+                    await capturedBodies.set(bodies)
+                }
                 let count = await attemptCount.value
                 let status = count < 2 ? 500 : 200
                 return (Data(), HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
@@ -1104,7 +1110,11 @@ struct NetworkTests {
                     form.append("data".data(using: .utf8)!, name: "field")
                 })
                 .responseURL()
+            let bodies = await capturedBodies.value
             #expect(await attemptCount.value == 2)
+            // Body must be identical on each attempt — same boundary, same parts
+            #expect(bodies.count == 2)
+            #expect(bodies[0] == bodies[1])
         }
     }
 
