@@ -404,6 +404,95 @@ extension BaseAPI {
             }
         }
 
+        // MARK: - Raw Data Body Requests
+
+        /// POST with a pre-serialized `Data` body and a decoded response.
+        ///
+        /// Use this when replaying queued changes whose body was already JSON-encoded
+        /// (e.g. from a change queue store) to avoid double-encoding.
+        public func post<Response: Decodable>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            try await performRawBodyRequest(
+                endpoint: endpoint, method: .post, rawBody: rawBody,
+                printResponseBody: printResponseBody)
+        }
+
+        public func post<Response>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false,
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable {
+            Task {
+                do {
+                    let result: APIResponse<Response> = try await post(
+                        endpoint, rawBody: rawBody, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    callback(.failure(error as? APIError ?? .unknown))
+                }
+            }
+        }
+
+        /// PUT with a pre-serialized `Data` body and a decoded response.
+        public func put<Response: Decodable>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            try await performRawBodyRequest(
+                endpoint: endpoint, method: .put, rawBody: rawBody,
+                printResponseBody: printResponseBody)
+        }
+
+        public func put<Response>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false,
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable {
+            Task {
+                do {
+                    let result: APIResponse<Response> = try await put(
+                        endpoint, rawBody: rawBody, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    callback(.failure(error as? APIError ?? .unknown))
+                }
+            }
+        }
+
+        /// PATCH with a pre-serialized `Data` body and a decoded response.
+        public func patch<Response: Decodable>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            try await performRawBodyRequest(
+                endpoint: endpoint, method: .patch, rawBody: rawBody,
+                printResponseBody: printResponseBody)
+        }
+
+        public func patch<Response>(
+            _ endpoint: Endpoint,
+            rawBody: Data,
+            printResponseBody: Bool = false,
+            then callback: @escaping @Sendable (APIResult<Response>) -> Void
+        ) where Response: Decodable & Sendable {
+            Task {
+                do {
+                    let result: APIResponse<Response> = try await patch(
+                        endpoint, rawBody: rawBody, printResponseBody: printResponseBody)
+                    callback(.success(result))
+                } catch {
+                    callback(.failure(error as? APIError ?? .unknown))
+                }
+            }
+        }
+
         // MARK: - Public Helper Functions
 
         public func performRequest<Request: Encodable>(
@@ -560,6 +649,59 @@ extension BaseAPI {
 
             logAnalytics(endpoint, method, startTime, true, httpResponse.statusCode, nil)
             return (decodedResponse, httpResponse)
+        }
+
+        private func performRawBodyRequest<Response: Decodable>(
+            endpoint: Endpoint,
+            method: HTTPMethod,
+            rawBody: Data,
+            printResponseBody: Bool = false
+        ) async throws -> APIResponse<Response> {
+            let startTime = Date()
+            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
+
+            var attemptCount = 0
+            while true {
+                attemptCount += 1
+                do {
+                    var request = try await createBaseRequest(endpoint: endpoint, method: method)
+                    request.httpBody = rawBody
+
+                    let (data, urlResponse) = try await session.data(for: request)
+
+                    return try handleResponse(
+                        endpoint: endpoint,
+                        method: method,
+                        request: request,
+                        data: data,
+                        urlResponse: urlResponse,
+                        startTime: startTime,
+                        printResponseBody: printResponseBody
+                    )
+                } catch {
+                    let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                    let decision = await interceptorChain.retry(
+                        URLRequest(url: endpoint.url),
+                        dueTo: apiError,
+                        attemptCount: attemptCount
+                    )
+                    switch decision {
+                    case .retry(let delay):
+                        logger?.info(
+                            "\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s"
+                        )
+                        if delay > 0 {
+                            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        }
+                    case .doNotRetry:
+                        logger?.error(
+                            "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)"
+                        )
+                        logAnalytics(endpoint, method, startTime, false, nil, apiError.localizedDescription)
+                        throw apiError
+                    }
+                }
+            }
         }
 
         private func createBaseRequest(

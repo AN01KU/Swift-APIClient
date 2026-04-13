@@ -81,6 +81,61 @@ final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
     }
 }
 
+// MARK: - MockURLProtocol
+
+/// URLProtocol subclass that intercepts requests and calls a handler closure.
+final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+    typealias Handler = @Sendable (URLRequest) async -> (Data, HTTPURLResponse)
+    static var handler: Handler?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unknown))
+            return
+        }
+        // URLSession moves httpBody into httpBodyStream when dispatching through URLProtocol.
+        // Reconstruct a request with httpBody populated so handlers can inspect it.
+        var resolved = request
+        if resolved.httpBody == nil, let stream = resolved.httpBodyStream {
+            stream.open()
+            var bodyData = Data()
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+            defer { buffer.deallocate() }
+            while stream.hasBytesAvailable {
+                let count = stream.read(buffer, maxLength: 4096)
+                if count > 0 { bodyData.append(buffer, count: count) }
+            }
+            stream.close()
+            resolved.httpBody = bodyData
+        }
+        Task {
+            let (data, response) = await handler(resolved)
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data)
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+/// Thread-safe box for capturing values inside async closures in tests.
+actor ActorBox<T> {
+    private(set) var value: T
+    init(_ initial: T) { self.value = initial }
+    func set(_ newValue: T) { self.value = newValue }
+}
+
+/// Returns a URLSessionConfiguration pre-wired to use MockURLProtocol.
+func mockSessionConfiguration() -> URLSessionConfiguration {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockURLProtocol.self]
+    return config
+}
+
 // MARK: - API Client Test Suite
 @Suite("API Client Tests")
 struct APIClientTests {
@@ -1674,5 +1729,199 @@ struct APIClientTests {
             ]
         )
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
+
+}
+
+// MARK: - Raw Data Body Tests (serialized suite to avoid MockURLProtocol handler races)
+
+@Suite("Raw Body Tests", .serialized)
+struct RawBodyTests {
+
+    /// Registers a response handler and returns a client wired to MockURLProtocol.
+    private func client(responding handler: @escaping MockURLProtocol.Handler) -> BaseAPI.BaseAPIClient<MockEndpoint> {
+        MockURLProtocol.handler = handler
+        return BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
+    }
+
+    @Test("post(rawBody:) sends pre-serialized body unchanged")
+    func postRawBodySendsUnchanged() async throws {
+        let payload = TestResponse(id: "42", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBodyRef = ActorBox<Data?>(nil)
+
+        let c = client { request in
+            await capturedBodyRef.set(request.httpBody)
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = try JSONEncoder().encode(TestRequest(name: "replay", value: 7))
+        let response: BaseAPI.APIResponse<TestResponse> = try await c.post(
+            MockEndpoint(endpoint: "items", token: nil), rawBody: raw)
+
+        let captured = await capturedBodyRef.value
+        #expect(captured == raw)
+        #expect(response.data.id == "42")
+    }
+
+    @Test("put(rawBody:) sends pre-serialized body unchanged")
+    func putRawBodySendsUnchanged() async throws {
+        let payload = TestResponse(id: "99", status: "updated")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBodyRef = ActorBox<Data?>(nil)
+
+        let c = client { request in
+            await capturedBodyRef.set(request.httpBody)
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = try JSONEncoder().encode(TestRequest(name: "update", value: 3))
+        let response: BaseAPI.APIResponse<TestResponse> = try await c.put(
+            MockEndpoint(endpoint: "items/99", token: nil), rawBody: raw)
+
+        let captured = await capturedBodyRef.value
+        #expect(captured == raw)
+        #expect(response.data.id == "99")
+    }
+
+    @Test("patch(rawBody:) sends pre-serialized body unchanged")
+    func patchRawBodySendsUnchanged() async throws {
+        let payload = TestResponse(id: "7", status: "patched")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBodyRef = ActorBox<Data?>(nil)
+
+        let c = client { request in
+            await capturedBodyRef.set(request.httpBody)
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = try JSONEncoder().encode(TestRequest(name: "partial", value: 1))
+        let response: BaseAPI.APIResponse<TestResponse> = try await c.patch(
+            MockEndpoint(endpoint: "items/7", token: nil), rawBody: raw)
+
+        let captured = await capturedBodyRef.value
+        #expect(captured == raw)
+        #expect(response.data.id == "7")
+    }
+
+    @Test("post(rawBody:) propagates server error")
+    func postRawBodyPropagatesError() async throws {
+        let c = client { request in
+            return (Data(), HTTPURLResponse(
+                url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!)
+        }
+        let raw = Data("{}".utf8)
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c.post(
+                MockEndpoint(endpoint: "items", token: nil), rawBody: raw)
+            #expect(Bool(false), "Should have thrown")
+        } catch let error as BaseAPI.APIError {
+            if case .serverError(_, let code, _) = error {
+                #expect(code == 422)
+            } else {
+                #expect(Bool(false), "Expected .serverError")
+            }
+        }
+    }
+
+    @Test("post(rawBody:then:) callback receives success")
+    func postRawBodyCallbackSuccess() async throws {
+        let payload = TestResponse(id: "cb1", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+
+        let c = client { request in
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = Data("{}".utf8)
+
+        let result = await withCheckedContinuation { continuation in
+            c.post(MockEndpoint(endpoint: "cb", token: nil), rawBody: raw) {
+                (result: BaseAPI.APIResult<TestResponse>) in
+                continuation.resume(returning: result)
+            }
+        }
+
+        switch result {
+        case .success(let response):
+            #expect(response.data.id == "cb1")
+        case .failure:
+            #expect(Bool(false), "Expected success")
+        }
+    }
+
+    @Test("put(rawBody:then:) callback receives failure")
+    func putRawBodyCallbackFailure() async throws {
+        let c = client { request in
+            return (Data(), HTTPURLResponse(
+                url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = Data("{}".utf8)
+
+        let result = await withCheckedContinuation { continuation in
+            c.put(MockEndpoint(endpoint: "cb", token: nil), rawBody: raw) {
+                (result: BaseAPI.APIResult<TestResponse>) in
+                continuation.resume(returning: result)
+            }
+        }
+
+        switch result {
+        case .success:
+            #expect(Bool(false), "Expected failure")
+        case .failure:
+            #expect(Bool(true))
+        }
+    }
+
+    @Test("patch(rawBody:then:) callback receives success")
+    func patchRawBodyCallbackSuccess() async throws {
+        let payload = TestResponse(id: "p1", status: "patched")
+        let responseData = try JSONEncoder().encode(payload)
+
+        let c = client { request in
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = Data("{}".utf8)
+
+        let result = await withCheckedContinuation { continuation in
+            c.patch(MockEndpoint(endpoint: "cb", token: nil), rawBody: raw) {
+                (result: BaseAPI.APIResult<TestResponse>) in
+                continuation.resume(returning: result)
+            }
+        }
+
+        switch result {
+        case .success(let response):
+            #expect(response.data.id == "p1")
+        case .failure:
+            #expect(Bool(false), "Expected success")
+        }
+    }
+
+    @Test("raw body requests set Content-Type: application/json header")
+    func rawBodyRequestSetsContentType() async throws {
+        let payload = TestResponse(id: "hdr", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedHeaderRef = ActorBox<String?>(nil)
+
+        let c = client { request in
+            await capturedHeaderRef.set(request.value(forHTTPHeaderField: "Content-Type"))
+            return (responseData, HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let raw = Data("{}".utf8)
+        let _: BaseAPI.APIResponse<TestResponse> = try await c.post(
+            MockEndpoint(endpoint: "hdr", token: nil), rawBody: raw)
+
+        let header = await capturedHeaderRef.value
+        #expect(header == "application/json")
     }
 }
