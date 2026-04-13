@@ -20,7 +20,7 @@ extension BaseAPI.BaseAPIClient {
             attemptCount += 1
             do {
                 var request = try await createBaseRequest(endpoint: endpoint, method: method)
-                applyBuilderOverrides(builder, to: &request)
+                try applyBuilderOverrides(builder, to: &request)
 
                 if attemptCount == 1 {
                     firstRequest = request
@@ -80,7 +80,7 @@ extension BaseAPI.BaseAPIClient {
             attemptCount += 1
             do {
                 var request = try await createBaseRequest(endpoint: endpoint, method: method)
-                applyBuilderOverrides(builder, to: &request)
+                try applyBuilderOverrides(builder, to: &request)
 
                 if attemptCount == 1 {
                     firstRequest = request
@@ -124,7 +124,7 @@ extension BaseAPI.BaseAPIClient {
 
                 do {
                     var request = try await createBaseRequest(endpoint: endpoint, method: method)
-                    applyBuilderOverrides(builder, to: &request)
+                    try applyBuilderOverrides(builder, to: &request)
 
                     eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
 
@@ -247,16 +247,18 @@ extension BaseAPI.BaseAPIClient {
 
     // MARK: - Private Helpers
 
-    private func applyBuilderOverrides(_ builder: BaseAPI.RequestBuilder<Endpoint>, to request: inout URLRequest) {
+    private func applyBuilderOverrides(_ builder: BaseAPI.RequestBuilder<Endpoint>, to request: inout URLRequest) throws {
         if let timeout = builder.timeoutInterval { request.timeoutInterval = timeout }
         if let policy = builder.cachePolicy { request.cachePolicy = policy }
         for (key, value) in builder.additionalHeaders { request.setValue(value, forHTTPHeaderField: key) }
 
         switch builder.body {
         case .json(let value):
-            if let data = try? encoder.encode(AnyEncodable(value)) {
-                request.httpBody = data
+            do {
+                request.httpBody = try encoder.encode(AnyEncodable(value))
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            } catch {
+                throw BaseAPI.APIError.encodingFailed
             }
         case .formURL(let fields):
             request.httpBody = fields.formURLEncoded()

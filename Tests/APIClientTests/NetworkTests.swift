@@ -238,6 +238,24 @@ struct NetworkTests {
             #expect(monitor.finishes.count == 1)
         }
 
+        @Test("builder propagates encoding failure instead of sending bodyless request")
+        func builderPropagatesEncodingFailure() async throws {
+            let c = makeClient { req in
+                // This handler should never be reached.
+                (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            do {
+                let _: BaseAPI.APIResponse<TestResponse> = try await c
+                    .request(MockEndpoint(endpoint: "x", token: nil))
+                    .method(.post)
+                    .body(UnencodableBody())
+                    .response()
+                #expect(Bool(false), "Should have thrown encodingFailed")
+            } catch BaseAPI.APIError.encodingFailed {
+                // expected
+            }
+        }
+
         @Test("builder modifiers do not mutate the original")
         func builderIsImmutable() async throws {
             let payload = TestResponse(id: "imm", status: "ok")

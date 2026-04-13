@@ -130,6 +130,18 @@ actor ActorBox<T> {
     func set(_ newValue: T) { self.value = newValue }
 }
 
+// MARK: - Unencodable type
+
+/// A type whose encoding always fails — used to test that encoding errors propagate.
+struct UnencodableBody: Encodable, Sendable {
+    func encode(to encoder: Encoder) throws {
+        throw EncodingError.invalidValue(
+            self,
+            .init(codingPath: [], debugDescription: "intentionally unencodable")
+        )
+    }
+}
+
 /// Returns a URLSessionConfiguration pre-wired to use MockURLProtocol.
 func mockSessionConfiguration() -> URLSessionConfiguration {
     let config = URLSessionConfiguration.ephemeral
