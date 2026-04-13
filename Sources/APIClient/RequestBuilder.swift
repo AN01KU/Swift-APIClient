@@ -142,5 +142,27 @@ extension BaseAPI {
         public func responseData() async throws -> APIResponse<Data> {
             try await client.executeRaw(self)
         }
+
+        /// Stream download progress for this request.
+        ///
+        /// Returns an `AsyncThrowingStream` that emits one ``DownloadProgress`` event per
+        /// received chunk. The final event has a non-nil `data` property.
+        ///
+        /// ```swift
+        /// for try await progress in client
+        ///     .request(FileEndpoint.video("intro.mp4"))
+        ///     .headers(["Authorization": "Bearer \(token)"])
+        ///     .download()
+        /// {
+        ///     if let file = progress.data {
+        ///         save(file)
+        ///     } else {
+        ///         print("\(Int((progress.fraction ?? 0) * 100))%")
+        ///     }
+        /// }
+        /// ```
+        public func download() -> AsyncThrowingStream<DownloadProgress, Error> {
+            client.executeDownload(self)
+        }
     }
 }

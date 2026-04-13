@@ -511,6 +511,33 @@ extension BaseAPI {
             RequestBuilder(endpoint: endpoint, client: self)
         }
 
+        // MARK: - Download with Progress
+
+        /// Stream download progress for the given endpoint.
+        ///
+        /// Returns an `AsyncThrowingStream` that emits one ``DownloadProgress`` event per
+        /// received chunk. The final event has a non-nil `data` property containing the
+        /// complete response body.
+        ///
+        /// - The stream applies the client's interceptor chain and validators.
+        /// - Use ``RequestBuilder/download()`` for per-request header/timeout overrides.
+        ///
+        /// ```swift
+        /// for try await progress in client.download(FileEndpoint.asset("logo.png")) {
+        ///     if let file = progress.data {
+        ///         save(file)
+        ///     } else {
+        ///         progressView.value = progress.fraction ?? 0
+        ///     }
+        /// }
+        /// ```
+        public func download(
+            _ endpoint: Endpoint
+        ) -> AsyncThrowingStream<DownloadProgress, Error> {
+            let builder = RequestBuilder(endpoint: endpoint, client: self)
+            return executeDownload(builder)
+        }
+
         // MARK: - RequestBuilder Execution (internal)
 
         func execute<Response: Decodable & Sendable>(
@@ -684,6 +711,78 @@ extension BaseAPI {
                                                     method: method.rawValue, error: apiError,
                                                     duration: Date().timeIntervalSince(startTime))
                         throw apiError
+                    }
+                }
+            }
+        }
+
+        func executeDownload(
+            _ builder: RequestBuilder<Endpoint>
+        ) -> AsyncThrowingStream<DownloadProgress, Error> {
+            AsyncThrowingStream { continuation in
+                Task {
+                    let endpoint = builder.endpoint
+                    let method = builder.httpMethod
+                    let validators = builder.overrideValidators ?? self.validators
+
+                    do {
+                        var request = try await createBaseRequest(endpoint: endpoint, method: method)
+                        if let timeout = builder.timeoutInterval { request.timeoutInterval = timeout }
+                        if let policy = builder.cachePolicy { request.cachePolicy = policy }
+                        for (key, value) in builder.additionalHeaders {
+                            request.setValue(value, forHTTPHeaderField: key)
+                        }
+
+                        self.eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue,
+                                                          method: method.rawValue)
+
+                        let startTime = Date()
+                        let (asyncBytes, urlResponse) = try await self.session.bytes(for: request)
+
+                        guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                            throw APIError.invalidResponse(response: urlResponse)
+                        }
+
+                        try self.runValidators(validators, response: httpResponse, data: Data(),
+                                               request: request, endpoint: endpoint)
+
+                        let totalBytes = httpResponse.value(forHTTPHeaderField: "Content-Length")
+                            .flatMap { Int64($0) }
+
+                        var accumulated = Data()
+                        for try await byte in asyncBytes {
+                            accumulated.append(byte)
+                            let progress = DownloadProgress(
+                                bytesReceived: Int64(accumulated.count),
+                                totalBytesExpected: totalBytes,
+                                data: nil,
+                                response: httpResponse
+                            )
+                            continuation.yield(progress)
+                        }
+
+                        let final = DownloadProgress(
+                            bytesReceived: Int64(accumulated.count),
+                            totalBytesExpected: totalBytes,
+                            data: accumulated,
+                            response: httpResponse
+                        )
+                        continuation.yield(final)
+                        self.eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
+                                                           method: method.rawValue,
+                                                           response: httpResponse,
+                                                           duration: Date().timeIntervalSince(startTime))
+                        continuation.finish()
+                    } catch {
+                        let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                        self.eventMonitor.requestDidFail(
+                            URLRequest(url: builder.endpoint.url),
+                            endpoint: builder.endpoint.stringValue,
+                            method: builder.httpMethod.rawValue,
+                            error: apiError,
+                            duration: 0
+                        )
+                        continuation.finish(throwing: apiError)
                     }
                 }
             }

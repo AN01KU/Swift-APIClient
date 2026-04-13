@@ -2584,4 +2584,210 @@ struct FormURLEncodingTests {
     }
 }
 
+// MARK: - Download Tests
+
+@Suite("Download Tests")
+struct DownloadTests {
+
+    private func makeClient(
+        responseData: Data,
+        statusCode: Int = 200,
+        headers: [String: String]? = nil
+    ) -> BaseAPI.BaseAPIClient<MockEndpoint> {
+        MockURLProtocol.handler = { req in
+            let response = HTTPURLResponse(
+                url: req.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: headers
+            )!
+            return (responseData, response)
+        }
+        return BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
+    }
+
+    // MARK: Completion
+
+    @Test("download yields final event with complete data")
+    func downloadYieldsFinalData() async throws {
+        let content = Data("hello download".utf8)
+        let c = makeClient(responseData: content)
+
+        var finalData: Data?
+        for try await progress in c.download(MockEndpoint(endpoint: "file", token: nil)) {
+            if let d = progress.data { finalData = d }
+        }
+        #expect(finalData == content)
+    }
+
+    @Test("download via RequestBuilder yields final event with complete data")
+    func downloadViaBuilderYieldsFinalData() async throws {
+        let content = Data("builder download".utf8)
+        let c = makeClient(responseData: content)
+
+        var finalData: Data?
+        for try await progress in c
+            .request(MockEndpoint(endpoint: "file", token: nil))
+            .download()
+        {
+            if let d = progress.data { finalData = d }
+        }
+        #expect(finalData == content)
+    }
+
+    // MARK: Progress events
+
+    @Test("download emits progress events before final event")
+    func downloadEmitsProgressEvents() async throws {
+        // Use a reasonably sized payload so URLSession produces at least one intermediate event.
+        let content = Data(repeating: 0xAB, count: 4096)
+        let c = makeClient(responseData: content)
+
+        var progressEvents: [BaseAPI.DownloadProgress] = []
+        for try await progress in c.download(MockEndpoint(endpoint: "file", token: nil)) {
+            progressEvents.append(progress)
+        }
+
+        #expect(progressEvents.count >= 1)
+        // Final event has data
+        #expect(progressEvents.last?.data != nil)
+        // bytesReceived on last event equals content size
+        #expect(progressEvents.last?.bytesReceived == Int64(content.count))
+    }
+
+    @Test("intermediate progress events have nil data")
+    func intermediateEventsHaveNilData() async throws {
+        let content = Data(repeating: 0xCD, count: 4096)
+        let c = makeClient(responseData: content)
+
+        var events: [BaseAPI.DownloadProgress] = []
+        for try await p in c.download(MockEndpoint(endpoint: "file", token: nil)) {
+            events.append(p)
+        }
+
+        // All events except the last must have nil data
+        let intermediate = events.dropLast()
+        for event in intermediate {
+            #expect(event.data == nil)
+        }
+    }
+
+    // MARK: Content-Length → fraction
+
+    @Test("fraction is non-nil when Content-Length is present")
+    func fractionNonNilWithContentLength() async throws {
+        let content = Data(repeating: 0x01, count: 100)
+        let c = makeClient(
+            responseData: content,
+            headers: ["Content-Length": "\(content.count)"]
+        )
+
+        var lastProgress: BaseAPI.DownloadProgress?
+        for try await p in c.download(MockEndpoint(endpoint: "file", token: nil)) {
+            lastProgress = p
+        }
+        #expect(lastProgress?.totalBytesExpected == Int64(content.count))
+        #expect(lastProgress?.fraction == 1.0)
+    }
+
+    @Test("fraction is nil when Content-Length is absent")
+    func fractionNilWithoutContentLength() async throws {
+        let content = Data("no length header".utf8)
+        let c = makeClient(responseData: content) // no Content-Length header
+
+        var lastProgress: BaseAPI.DownloadProgress?
+        for try await p in c.download(MockEndpoint(endpoint: "file", token: nil)) {
+            lastProgress = p
+        }
+        #expect(lastProgress?.totalBytesExpected == nil)
+        #expect(lastProgress?.fraction == nil)
+    }
+
+    // MARK: Error propagation
+
+    @Test("download throws on server error status")
+    func downloadThrowsOnServerError() async throws {
+        let c = makeClient(responseData: Data(), statusCode: 503)
+
+        var caught: BaseAPI.APIError?
+        do {
+            for try await _ in c.download(MockEndpoint(endpoint: "file", token: nil)) {}
+        } catch let e as BaseAPI.APIError {
+            caught = e
+        }
+
+        if case .serverError(_, let code, _) = caught {
+            #expect(code == 503)
+        } else {
+            #expect(Bool(false), "Expected .serverError(503)")
+        }
+    }
+
+    // MARK: Event monitor integration
+
+    @Test("download fires requestDidStart and requestDidFinish on success")
+    func downloadFiresMonitorEvents() async throws {
+        let monitor = EventMonitorTests.RecordingMonitor()
+        let content = Data("monitored".utf8)
+
+        MockURLProtocol.handler = { req in
+            (content, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                      httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            eventMonitors: [monitor]
+        )
+
+        for try await _ in c.download(MockEndpoint(endpoint: "file", token: nil)) {}
+
+        #expect(monitor.starts.count == 1)
+        #expect(monitor.finishes.count == 1)
+        #expect(monitor.failures.count == 0)
+    }
+
+    @Test("download fires requestDidFail on error")
+    func downloadFiresMonitorFailEvent() async throws {
+        let monitor = EventMonitorTests.RecordingMonitor()
+
+        MockURLProtocol.handler = { req in
+            (Data(), HTTPURLResponse(url: req.url!, statusCode: 500,
+                                     httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            eventMonitors: [monitor]
+        )
+
+        do {
+            for try await _ in c.download(MockEndpoint(endpoint: "file", token: nil)) {}
+        } catch {}
+
+        #expect(monitor.failures.count == 1)
+    }
+
+    // MARK: RequestBuilder per-request overrides respected
+
+    @Test("download via builder applies extra headers")
+    func downloadBuilderAppliesHeaders() async throws {
+        let content = Data("ok".utf8)
+        let capturedHeader = ActorBox<String?>(nil)
+
+        MockURLProtocol.handler = { req in
+            await capturedHeader.set(req.value(forHTTPHeaderField: "X-Download-Token"))
+            return (content, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                             httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
+
+        for try await _ in c
+            .request(MockEndpoint(endpoint: "file", token: nil))
+            .headers(["X-Download-Token": "secret"])
+            .download()
+        {}
+
+        #expect(await capturedHeader.value == "secret")
+    }
+}
+
 } // NetworkTests
