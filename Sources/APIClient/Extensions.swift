@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 // MARK: - URLRequest Extensions
 
@@ -142,11 +144,13 @@ struct AnyEncodable: Encodable {
 
 extension URLSession {
     class func mimeTypeForPath(_ pathExtension: String) -> String {
+        #if canImport(UniformTypeIdentifiers)
         if let utType = UTType(filenameExtension: pathExtension),
             let mimeType = utType.preferredMIMEType
         {
             return mimeType
         }
+        #endif
         return "application/octet-stream"
     }
 }
