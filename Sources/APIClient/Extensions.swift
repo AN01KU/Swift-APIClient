@@ -137,6 +137,35 @@ extension Data {
     }
 }
 
+// MARK: - Form URL Encoding
+
+extension Dictionary where Key == String, Value == String {
+    /// Percent-encodes the dictionary as `application/x-www-form-urlencoded`.
+    ///
+    /// Keys and values are encoded with `urlQueryAllowed` minus `+`, `&`, `=` — the
+    /// subset safe inside a query string component per RFC 3986. Pairs are sorted
+    /// alphabetically by key for deterministic output (useful in tests and caches).
+    func formURLEncoded() -> Data {
+        // Characters allowed in query components minus delimiters that have special meaning
+        // inside `key=value&key=value` strings.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "+&=")
+
+        let pairs = self
+            .sorted { $0.key < $1.key }
+            .compactMap { key, value -> String? in
+                guard
+                    let encodedKey = key.addingPercentEncoding(withAllowedCharacters: allowed),
+                    let encodedValue = value.addingPercentEncoding(withAllowedCharacters: allowed)
+                else { return nil }
+                return "\(encodedKey)=\(encodedValue)"
+            }
+            .joined(separator: "&")
+
+        return Data(pairs.utf8)
+    }
+}
+
 // MARK: - AnyEncodable
 
 /// Type-erasing wrapper that lets `JSONEncoder` encode an `any Encodable` value.

@@ -541,6 +541,9 @@ extension BaseAPI {
                         let data = try encoder.encode(AnyEncodable(value))
                         request.httpBody = data
                         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    case .formURL(let fields):
+                        request.httpBody = fields.formURLEncoded()
+                        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                     case .raw(let data, let contentType):
                         request.httpBody = data
                         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -631,6 +634,9 @@ extension BaseAPI {
                         let data = try encoder.encode(AnyEncodable(value))
                         request.httpBody = data
                         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    case .formURL(let fields):
+                        request.httpBody = fields.formURLEncoded()
+                        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                     case .raw(let data, let contentType):
                         request.httpBody = data
                         request.setValue(contentType, forHTTPHeaderField: "Content-Type")

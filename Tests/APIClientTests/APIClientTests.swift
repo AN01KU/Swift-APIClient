@@ -2403,4 +2403,185 @@ struct RequestBuilderTests {
     }
 }
 
+// MARK: - Form URL Encoding Tests
+
+@Suite("Form URL Encoding Tests")
+struct FormURLEncodingTests {
+
+    private func makeClient(handler: @escaping MockURLProtocol.Handler)
+        -> BaseAPI.BaseAPIClient<MockEndpoint>
+    {
+        MockURLProtocol.handler = handler
+        return BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
+    }
+
+    // MARK: Content-Type header
+
+    @Test("form body sets Content-Type to application/x-www-form-urlencoded")
+    func formBodySetsContentType() async throws {
+        let payload = TestResponse(id: "f1", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedCT = ActorBox<String?>(nil)
+
+        let c = makeClient { req in
+            await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                                  httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "auth/token", token: nil))
+            .method(.post)
+            .body(form: ["grant_type": "client_credentials"])
+            .response()
+
+        #expect(await capturedCT.value == "application/x-www-form-urlencoded")
+    }
+
+    // MARK: Body encoding
+
+    @Test("form body encodes single key-value pair correctly")
+    func formBodyEncodesSinglePair() async throws {
+        let payload = TestResponse(id: "f2", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBody = ActorBox<Data?>(nil)
+
+        let c = makeClient { req in
+            await capturedBody.set(req.httpBody)
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                                  httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "token", token: nil))
+            .method(.post)
+            .body(form: ["grant_type": "client_credentials"])
+            .response()
+
+        let body = await capturedBody.value
+        let bodyString = body.flatMap { String(data: $0, encoding: .utf8) }
+        #expect(bodyString == "grant_type=client_credentials")
+    }
+
+    @Test("form body encodes multiple pairs sorted alphabetically")
+    func formBodyEncodesMultiplePairsSorted() async throws {
+        let payload = TestResponse(id: "f3", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBody = ActorBox<Data?>(nil)
+
+        let c = makeClient { req in
+            await capturedBody.set(req.httpBody)
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                                  httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "token", token: nil))
+            .method(.post)
+            .body(form: ["scope": "read write", "grant_type": "password", "username": "alice"])
+            .response()
+
+        let body = await capturedBody.value
+        let bodyString = body.flatMap { String(data: $0, encoding: .utf8) }
+        // Keys are sorted: grant_type, scope, username
+        #expect(bodyString == "grant_type=password&scope=read%20write&username=alice")
+    }
+
+    @Test("form body percent-encodes special characters")
+    func formBodyPercentEncodesSpecialChars() async throws {
+        let payload = TestResponse(id: "f4", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBody = ActorBox<Data?>(nil)
+
+        let c = makeClient { req in
+            await capturedBody.set(req.httpBody)
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                                  httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "search", token: nil))
+            .method(.post)
+            .body(form: ["q": "hello world&foo=bar"])
+            .response()
+
+        let body = await capturedBody.value
+        let bodyString = body.flatMap { String(data: $0, encoding: .utf8) }
+        // space → %20, & → %26, = → %3D
+        #expect(bodyString == "q=hello%20world%26foo%3Dbar")
+    }
+
+    @Test("form body with empty dictionary produces no body bytes")
+    func formBodyEncodesEmptyDict() async throws {
+        // An empty field dict encodes to "" which is zero bytes —
+        // URLSession does not set httpBody for zero-length data, so httpBody is nil.
+        let payload = TestResponse(id: "f5", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedCT = ActorBox<String?>(nil)
+
+        let c = makeClient { req in
+            await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                                  httpVersion: nil, headerFields: nil)!)
+        }
+
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "token", token: nil))
+            .method(.post)
+            .body(form: [:])
+            .response()
+
+        // Content-Type is still set even though body is empty
+        #expect(await capturedCT.value == "application/x-www-form-urlencoded")
+    }
+
+    // MARK: Works with responseData()
+
+    @Test("form body works with responseData()")
+    func formBodyWorksWithResponseData() async throws {
+        let raw = Data("ok".utf8)
+        let capturedCT = ActorBox<String?>(nil)
+
+        let c = makeClient { req in
+            await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
+            return (raw, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                         httpVersion: nil, headerFields: nil)!)
+        }
+
+        let (data, _) = try await c
+            .request(MockEndpoint(endpoint: "submit", token: nil))
+            .method(.post)
+            .body(form: ["key": "value"])
+            .responseData()
+
+        #expect(data == raw)
+        #expect(await capturedCT.value == "application/x-www-form-urlencoded")
+    }
+
+    // MARK: Immutability
+
+    @Test("form body modifier does not mutate original builder")
+    func formBodyModifierIsImmutable() async throws {
+        let payload = TestResponse(id: "imm", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let c = makeClient { req in
+            (data, HTTPURLResponse(url: req.url!, statusCode: 200,
+                                   httpVersion: nil, headerFields: nil)!)
+        }
+        let base = c.request(MockEndpoint(endpoint: "x", token: nil)).method(.post)
+        let withForm = base.body(form: ["a": "1"])
+        let withJSON = base.body(TestRequest(name: "n", value: 0))
+
+        if case .formURL = withForm.body { } else {
+            #expect(Bool(false), "Expected .formURL on withForm")
+        }
+        if case .json = withJSON.body { } else {
+            #expect(Bool(false), "Expected .json on withJSON")
+        }
+        if case .none = base.body { } else {
+            #expect(Bool(false), "Expected .none on base")
+        }
+    }
+}
+
 } // NetworkTests

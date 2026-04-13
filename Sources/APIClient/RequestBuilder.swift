@@ -8,6 +8,8 @@ extension BaseAPI {
     public enum RequestBody: Sendable {
         /// Encode the value as JSON using the client's `JSONEncoder`.
         case json(any (Encodable & Sendable))
+        /// Percent-encode key/value pairs as `application/x-www-form-urlencoded`.
+        case formURL([String: String])
         /// Send raw bytes as-is (e.g. pre-serialized JSON, binary payloads).
         case raw(Data, contentType: String = "application/json")
         /// No body.
@@ -86,6 +88,22 @@ extension BaseAPI {
         /// Set the request body to raw bytes with an explicit Content-Type.
         public func body(raw data: Data, contentType: String = "application/json") -> Self {
             var copy = self; copy.body = .raw(data, contentType: contentType); return copy
+        }
+
+        /// Set the request body to `application/x-www-form-urlencoded`.
+        ///
+        /// Keys and values are percent-encoded per RFC 3986. Use this for OAuth token
+        /// endpoints, legacy form-based APIs, or any endpoint that rejects JSON bodies.
+        ///
+        /// ```swift
+        /// try await client
+        ///     .request(AuthEndpoint.token)
+        ///     .method(.post)
+        ///     .body(form: ["grant_type": "client_credentials", "scope": "read write"])
+        ///     .response(TokenResponse.self)
+        /// ```
+        public func body(form fields: [String: String]) -> Self {
+            var copy = self; copy.body = .formURL(fields); return copy
         }
 
         /// Override the timeout for this request only (seconds).
