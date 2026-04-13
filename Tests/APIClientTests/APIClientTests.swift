@@ -264,7 +264,8 @@ struct APIClientTests {
     func urlRequestJSONHeaders() throws {
         var request = URLRequest(url: URL(string: "https://example.com")!)
         request.addJSONHeaders(additionalHeaders: ["Authorization": "Bearer token123", "X-Custom": "val"])
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        // Content-Type is not set by addJSONHeaders — it's applied per-body-type in the builder.
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token123")
     }
@@ -273,7 +274,9 @@ struct APIClientTests {
     func urlRequestExtensionsErrorHandling() throws {
         var request = URLRequest(url: URL(string: "https://example.com")!)
         request.addJSONHeaders(additionalHeaders: [:])
-        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        // addJSONHeaders only sets Accept; Content-Type is absent on body-less requests.
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == nil)
+        #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
 
         request.addJSONHeaders(additionalHeaders: ["Content-Type": "application/custom"])
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/custom")

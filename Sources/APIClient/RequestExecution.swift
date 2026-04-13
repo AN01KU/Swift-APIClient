@@ -182,8 +182,8 @@ extension BaseAPI.BaseAPIClient {
 
     /// Execute a request and return the raw `(Data, URLResponse)` tuple.
     ///
-    /// Use this when you need direct access to the raw response before decoding,
-    /// or when replaying pre-serialized request bodies.
+    /// - Warning: This method bypasses the client's validators, event monitors, and retry
+    ///   logic. Prefer `request(_:).responseData()` for consistent behaviour.
     public func performRequest<Request: Encodable>(
         endpoint: Endpoint,
         method: BaseAPI.HTTPMethod,
