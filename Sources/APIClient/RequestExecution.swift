@@ -7,76 +7,40 @@ extension BaseAPI.BaseAPIClient {
     func execute<Response: Decodable & Sendable>(
         _ builder: BaseAPI.RequestBuilder<Endpoint>
     ) async throws -> BaseAPI.APIResponse<Response> {
-        let endpoint = builder.endpoint
-        let method = builder.httpMethod
         let startTime = Date()
-        let validators = builder.overrideValidators ?? self.validators
-
-        logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
-
-        var attemptCount = 0
-        var firstRequest: URLRequest?
-        while true {
-            attemptCount += 1
-            do {
-                var request = try await createBaseRequest(endpoint: endpoint, method: method)
-                try applyBuilderOverrides(builder, to: &request)
-
-                if attemptCount == 1 {
-                    firstRequest = request
-                    eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
-                }
-
-                let (data, urlResponse) = try await session.data(for: request)
-
-                guard let httpResponse = urlResponse as? HTTPURLResponse else {
-                    throw BaseAPI.APIError.invalidResponse(response: urlResponse)
-                }
-
-                logger?.info(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
-
-                try runValidators(
-                    validators, response: httpResponse, data: data,
-                    request: request, endpoint: endpoint)
-
-                let decoded: Response
-                do {
-                    decoded = try data.decode(
-                        Response.self, decoder: decoder,
-                        endpoint: endpoint.stringValue, method: method.rawValue)
-                } catch {
-                    let apiError = BaseAPI.APIError.decodingFailed(
-                        response: httpResponse, error: error.localizedDescription)
-                    logger?.error(
-                        "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "")"
-                    )
-                    eventMonitor.requestDidFail(
-                        request, endpoint: endpoint.stringValue,
-                        method: method.rawValue, error: apiError,
-                        duration: Date().timeIntervalSince(startTime))
-                    throw apiError
-                }
-
-                eventMonitor.requestDidFinish(
-                    request, endpoint: endpoint.stringValue,
-                    method: method.rawValue, response: httpResponse,
-                    duration: Date().timeIntervalSince(startTime))
-                return (decoded, httpResponse)
-
-            } catch {
-                guard
-                    let apiError = try await handleRetry(
-                        error, endpoint: endpoint, method: method,
-                        attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
-                    )
-                else { continue }
-                throw apiError
-            }
+        let (data, httpResponse) = try await executeCore(builder)
+        do {
+            let decoded = try data.decode(
+                Response.self, decoder: decoder,
+                endpoint: builder.endpoint.stringValue, method: builder.httpMethod.rawValue)
+            return (decoded, httpResponse)
+        } catch {
+            let apiError = BaseAPI.APIError.decodingFailed(
+                response: httpResponse, error: error.localizedDescription)
+            logger?.error(
+                "\(builder.httpMethod.rawValue):\(builder.endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "")"
+            )
+            eventMonitor.requestDidFail(
+                URLRequest(url: builder.endpoint.url),
+                endpoint: builder.endpoint.stringValue,
+                method: builder.httpMethod.rawValue,
+                error: apiError,
+                duration: Date().timeIntervalSince(startTime))
+            throw apiError
         }
     }
 
     func executeRaw(_ builder: BaseAPI.RequestBuilder<Endpoint>) async throws -> BaseAPI.APIResponse<Data> {
+        try await executeCore(builder)
+    }
+
+    // MARK: - Core retry loop
+
+    /// Runs the request-validate-retry loop and returns raw `(Data, HTTPURLResponse)`.
+    /// Both `execute` and `executeRaw` delegate here; callers are responsible for decoding.
+    private func executeCore(
+        _ builder: BaseAPI.RequestBuilder<Endpoint>
+    ) async throws -> BaseAPI.APIResponse<Data> {
         let endpoint = builder.endpoint
         let method = builder.httpMethod
         let startTime = Date()
@@ -106,9 +70,7 @@ extension BaseAPI.BaseAPIClient {
                 logger?.info(
                     "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
 
-                try runValidators(
-                    validators, response: httpResponse, data: data,
-                    request: request, endpoint: endpoint)
+                try runValidators(validators, response: httpResponse, data: data, request: request, endpoint: endpoint)
 
                 eventMonitor.requestDidFinish(
                     request, endpoint: endpoint.stringValue,
@@ -120,8 +82,7 @@ extension BaseAPI.BaseAPIClient {
                 guard
                     let apiError = try await handleRetry(
                         error, endpoint: endpoint, method: method,
-                        attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime
-                    )
+                        attemptCount: attemptCount, firstRequest: firstRequest, startTime: startTime)
                 else { continue }
                 throw apiError
             }

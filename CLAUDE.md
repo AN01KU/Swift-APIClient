@@ -30,7 +30,7 @@ This is a Swift Package (`Sources/APIClient`) providing a generic HTTP client li
 | `Protocols.swift` | `APIEndpoint`, `RequestInterceptor`, `ResponseValidator`, `APIClientLoggingProtocol`, `RequestEventMonitor`, `RetryDecision` |
 | `APIClient.swift` | `BaseAPIClient<Endpoint>` — shorthand HTTP methods, entry point for `RequestBuilder` |
 | `RequestBuilder.swift` | `RequestBody` enum, `RequestBuilder<Endpoint>` fluent builder and terminal methods |
-| `RequestExecution.swift` | `execute`, `executeRaw`, `executeDownload`, `createBaseRequest`, `applyBuilderOverrides`, `runValidators`, `handleRetry` |
+| `RequestExecution.swift` | `execute`, `executeRaw`, `executeCore` (private retry loop), `executeDownload`, `createBaseRequest`, `applyBuilderOverrides`, `runValidators`, `handleRetry` |
 | `HTTPMethod.swift` | `HTTPMethod` enum: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS |
 | `APIError.swift` | `APIError` enum |
 | `Interceptors.swift` | `InterceptorChain`, `RetryPolicy`, `BackoffStrategy` |
