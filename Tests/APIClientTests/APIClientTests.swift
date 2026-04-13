@@ -1436,4 +1436,243 @@ struct APIClientTests {
             #expect(error is BaseAPI.APIError)
         }
     }
+
+    // MARK: - BackoffStrategy Tests
+
+    @Test("BackoffStrategy.none always returns zero delay")
+    func backoffNoneReturnsZero() {
+        let strategy = BaseAPI.BackoffStrategy.none
+        for attempt in 1...5 {
+            #expect(strategy.delay(for: attempt) == 0)
+        }
+    }
+
+    @Test("BackoffStrategy.constant always returns fixed delay")
+    func backoffConstantReturnsFixed() {
+        let strategy = BaseAPI.BackoffStrategy.constant(2.5)
+        for attempt in 1...5 {
+            #expect(strategy.delay(for: attempt) == 2.5)
+        }
+    }
+
+    @Test("BackoffStrategy.exponential doubles delay each attempt")
+    func backoffExponentialDoubles() {
+        let strategy = BaseAPI.BackoffStrategy.exponential(base: 1, multiplier: 2, maxDelay: 60)
+        #expect(strategy.delay(for: 1) == 1.0)   // 1 * 2^0
+        #expect(strategy.delay(for: 2) == 2.0)   // 1 * 2^1
+        #expect(strategy.delay(for: 3) == 4.0)   // 1 * 2^2
+        #expect(strategy.delay(for: 4) == 8.0)   // 1 * 2^3
+        #expect(strategy.delay(for: 5) == 16.0)  // 1 * 2^4
+    }
+
+    @Test("BackoffStrategy.exponential respects maxDelay cap")
+    func backoffExponentialCapsAtMaxDelay() {
+        let strategy = BaseAPI.BackoffStrategy.exponential(base: 1, multiplier: 2, maxDelay: 5)
+        #expect(strategy.delay(for: 1) == 1.0)
+        #expect(strategy.delay(for: 2) == 2.0)
+        #expect(strategy.delay(for: 3) == 4.0)
+        #expect(strategy.delay(for: 4) == 5.0)  // capped: 8 → 5
+        #expect(strategy.delay(for: 5) == 5.0)  // capped: 16 → 5
+    }
+
+    @Test("BackoffStrategy.exponential with custom base and multiplier")
+    func backoffExponentialCustom() {
+        let strategy = BaseAPI.BackoffStrategy.exponential(base: 0.5, multiplier: 3, maxDelay: 100)
+        #expect(strategy.delay(for: 1) == 0.5)    // 0.5 * 3^0
+        #expect(strategy.delay(for: 2) == 1.5)    // 0.5 * 3^1
+        #expect(strategy.delay(for: 3) == 4.5)    // 0.5 * 3^2
+    }
+
+    // MARK: - RetryPolicy Tests
+
+    @Test("RetryPolicy retries on retryable status codes")
+    func retryPolicyRetriesOnRetryableStatusCodes() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .none, retryableStatusCodes: [500, 503])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
+
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+        if case .retry(let delay) = decision {
+            #expect(delay == 0)
+        } else {
+            #expect(Bool(false), "Expected .retry")
+        }
+    }
+
+    @Test("RetryPolicy does not retry on non-retryable status codes")
+    func retryPolicySkipsNonRetryableStatusCodes() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, retryableStatusCodes: [500])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 404,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 404, requestID: "x")
+
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+        if case .doNotRetry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Expected .doNotRetry") }
+    }
+
+    @Test("RetryPolicy stops after maxAttempts")
+    func retryPolicyStopsAtMaxAttempts() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, retryableStatusCodes: [500])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
+
+        // attemptCount == maxAttempts means we've exhausted retries
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 3)
+        if case .doNotRetry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Expected .doNotRetry at attempt 3 with maxAttempts 3") }
+    }
+
+    @Test("RetryPolicy still retries below maxAttempts")
+    func retryPolicyRetriesBelowMax() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, retryableStatusCodes: [500])
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
+
+        let d1 = await policy.retry(request, dueTo: error, attemptCount: 1)
+        let d2 = await policy.retry(request, dueTo: error, attemptCount: 2)
+        if case .retry = d1 { #expect(Bool(true)) } else { #expect(Bool(false)) }
+        if case .retry = d2 { #expect(Bool(true)) } else { #expect(Bool(false)) }
+    }
+
+    @Test("RetryPolicy retries network errors when retryNetworkErrors is true")
+    func retryPolicyRetriesNetworkErrors() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(1), retryNetworkErrors: true)
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let error = BaseAPI.APIError.networkError("timeout")
+
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+        if case .retry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Expected .retry for network error") }
+    }
+
+    @Test("RetryPolicy does not retry network errors by default")
+    func retryPolicySkipsNetworkErrorsByDefault() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3)  // retryNetworkErrors defaults to false
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let error = BaseAPI.APIError.networkError("timeout")
+
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+        if case .doNotRetry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Expected .doNotRetry for network error") }
+    }
+
+    @Test("RetryPolicy.adapt is a no-op pass-through")
+    func retryPolicyAdaptIsNoOp() async throws {
+        let policy = BaseAPI.RetryPolicy()
+        var request = URLRequest(url: URL(string: "https://example.com")!)
+        request.setValue("Bearer token", forHTTPHeaderField: "Authorization")
+
+        let adapted = try await policy.adapt(request)
+        #expect(adapted.url == request.url)
+        #expect(adapted.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+    }
+
+    @Test("RetryPolicy default retryable status codes")
+    func retryPolicyDefaultStatusCodes() async {
+        let policy = BaseAPI.RetryPolicy()
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for code in [429, 500, 502, 503, 504] {
+            let response = HTTPURLResponse(
+                url: URL(string: "https://example.com")!, statusCode: code,
+                httpVersion: nil, headerFields: nil)!
+            let error = BaseAPI.APIError.serverError(response: response, code: code, requestID: "x")
+            let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+            if case .retry = decision { #expect(Bool(true)) }
+            else { #expect(Bool(false), "Expected retry for \(code)") }
+        }
+    }
+
+    @Test("RetryPolicy does not retry non-server errors")
+    func retryPolicySkipsNonServerErrors() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3)
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+
+        for error: BaseAPI.APIError in [.encodingFailed, .unknown] {
+            let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+            if case .doNotRetry = decision { #expect(Bool(true)) }
+            else { #expect(Bool(false), "Expected .doNotRetry for \(error)") }
+        }
+    }
+
+    @Test("RetryPolicy maxAttempts clamped to minimum 1")
+    func retryPolicyMinAttempts() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 0)  // should clamp to 1
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
+
+        // attemptCount 1 >= maxAttempts(1), so doNotRetry
+        let decision = await policy.retry(request, dueTo: error, attemptCount: 1)
+        if case .doNotRetry = decision { #expect(Bool(true)) }
+        else { #expect(Bool(false), "Expected .doNotRetry when maxAttempts clamped to 1") }
+    }
+
+    @Test("RetryPolicy uses exponential backoff delay")
+    func retryPolicyExponentialDelay() async {
+        let policy = BaseAPI.RetryPolicy(
+            maxAttempts: 5,
+            backoff: .exponential(base: 1, multiplier: 2, maxDelay: 60),
+            retryableStatusCodes: [500]
+        )
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 500,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 500, requestID: "x")
+
+        let d1 = await policy.retry(request, dueTo: error, attemptCount: 1)
+        let d2 = await policy.retry(request, dueTo: error, attemptCount: 2)
+        let d3 = await policy.retry(request, dueTo: error, attemptCount: 3)
+
+        if case .retry(let delay) = d1 { #expect(delay == 1.0) } else { #expect(Bool(false)) }
+        if case .retry(let delay) = d2 { #expect(delay == 2.0) } else { #expect(Bool(false)) }
+        if case .retry(let delay) = d3 { #expect(delay == 4.0) } else { #expect(Bool(false)) }
+    }
+
+    @Test("RetryPolicy composes correctly in InterceptorChain")
+    func retryPolicyInInterceptorChain() async {
+        let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(0.5), retryableStatusCodes: [503])
+        let auth = MockInterceptor(additionalHeaders: ["Authorization": "Bearer tok"])
+        let chain = BaseAPI.InterceptorChain([auth, policy])
+
+        let request = URLRequest(url: URL(string: "https://example.com")!)
+        let response = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 503,
+            httpVersion: nil, headerFields: nil)!
+        let error = BaseAPI.APIError.serverError(response: response, code: 503, requestID: "x")
+
+        // Chain should find RetryPolicy's .retry decision
+        let decision = await chain.retry(request, dueTo: error, attemptCount: 1)
+        if case .retry(let delay) = decision {
+            #expect(delay == 0.5)
+        } else {
+            #expect(Bool(false), "Expected .retry from chain")
+        }
+    }
+
+    @Test("Client initialises with RetryPolicy in interceptors array")
+    func clientInitWithRetryPolicy() {
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+            interceptors: [
+                MockInterceptor(additionalHeaders: ["X-App": "test"]),
+                BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .exponential(base: 1, multiplier: 2, maxDelay: 30)),
+            ]
+        )
+        #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
+    }
 }
