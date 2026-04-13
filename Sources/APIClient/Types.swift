@@ -10,13 +10,13 @@ public enum BaseAPI {
     // MARK: - Data Structures
 
     /// Container for multipart form data uploads
-    public struct MultipartData {
-        public let parameters: [String: AnyObject]?
+    public struct MultipartData: Sendable {
+        public let parameters: [String: String]?
         public let fileKeyName: String
         public let fileURLs: [URL]?
 
         public init(
-            parameters: [String: AnyObject]? = nil,
+            parameters: [String: String]? = nil,
             fileKeyName: String,
             fileURLs: [URL]? = nil
         ) {

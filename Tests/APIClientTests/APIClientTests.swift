@@ -180,7 +180,7 @@ struct APIClientTests {
 
     @Test("MultipartData initialization")
     func multipartDataInitialization() throws {
-        let parameters = ["key": "value"] as? [String: AnyObject]
+        let parameters: [String: String]? = ["key": "value"]
         let multipartData = BaseAPI.MultipartData(
             parameters: parameters, fileKeyName: "file",
             fileURLs: [URL(fileURLWithPath: "/tmp/test.txt")])
@@ -191,7 +191,7 @@ struct APIClientTests {
 
     @Test("MultipartData stringValue")
     func multipartDataStringValue() throws {
-        let parameters = ["name": "John Doe", "age": "30"] as [String: AnyObject]
+        let parameters: [String: String] = ["name": "John Doe", "age": "30"]
         let multipartData = BaseAPI.MultipartData(
             parameters: parameters, fileKeyName: "uploads",
             fileURLs: [URL(fileURLWithPath: "/tmp/test.txt"), URL(fileURLWithPath: "/tmp/image.png")])
@@ -334,7 +334,7 @@ struct APIClientTests {
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
         let multipartData = BaseAPI.MultipartData(
-            parameters: ["description": "Test upload"] as [String: AnyObject],
+            parameters: ["description": "Test upload"],
             fileKeyName: "file", fileURLs: [tempURL])
 
         try request.addMultipartData(data: multipartData)
@@ -411,7 +411,7 @@ struct APIClientTests {
     // MARK: - BaseAPIClient Configuration Tests
 
     @Test("BaseAPIClient custom configuration")
-    func baseAPIClientCustomConfiguration() throws {
+    func baseAPIClientCustomConfiguration() async throws {
         let sessionConfig = URLSessionConfiguration.default
         sessionConfig.timeoutIntervalForRequest = 15
 
@@ -421,17 +421,17 @@ struct APIClientTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        var unauthorizedCount = 0
+        let unauthorizedCount = ActorBox<Int>(0)
         let client = BaseAPI.BaseAPIClient<MockEndpoint>(
             sessionConfiguration: sessionConfig,
             encoder: encoder,
             decoder: decoder,
             analytics: MockAnalytics(),
             logger: MockLogger(),
-            unauthorizedHandler: { _ in unauthorizedCount += 1 }
+            unauthorizedHandler: { _ in Task { await unauthorizedCount.set(await unauthorizedCount.value + 1) } }
         )
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
-        #expect(unauthorizedCount == 0)
+        #expect(await unauthorizedCount.value == 0)
     }
 
     @Test("Request body encoding")

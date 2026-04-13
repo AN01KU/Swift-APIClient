@@ -86,7 +86,7 @@ final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
 /// URLProtocol subclass that intercepts requests and calls a handler closure.
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) async -> (Data, HTTPURLResponse)
-    static var handler: Handler?
+    nonisolated(unsafe) static var handler: Handler?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

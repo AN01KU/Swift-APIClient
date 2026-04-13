@@ -744,13 +744,13 @@ struct NetworkTests {
         @Test("requestWillRetry fires when RetryPolicy retries")
         func retryEventFires() async throws {
             let monitor = RecordingMonitor()
-            var callCount = 0
+            let callCount = ActorBox<Int>(0)
             let payload = TestResponse(id: "r", status: "ok")
             let successData = try JSONEncoder().encode(payload)
 
             MockURLProtocol.handler = { request in
-                callCount += 1
-                if callCount == 1 {
+                await callCount.set(await callCount.value + 1)
+                if await callCount.value == 1 {
                     return (
                         Data(),
                         HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!
