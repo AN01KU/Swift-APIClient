@@ -137,6 +137,21 @@ extension Data {
     }
 }
 
+// MARK: - AnyEncodable
+
+/// Type-erasing wrapper that lets `JSONEncoder` encode an `any Encodable` value.
+struct AnyEncodable: Encodable {
+    private let _encode: (Encoder) throws -> Void
+
+    init(_ value: any Encodable) {
+        self._encode = { try value.encode(to: $0) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try _encode(encoder)
+    }
+}
+
 // MARK: - URLSession Extensions
 
 extension URLSession {

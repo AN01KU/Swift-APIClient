@@ -500,6 +500,213 @@ extension BaseAPI {
             }
         }
 
+        // MARK: - RequestBuilder Entry Point
+
+        /// Create a ``RequestBuilder`` for the given endpoint.
+        ///
+        /// The builder defaults to `GET`, no extra headers, and the client's validators.
+        /// Call chainable modifiers before executing with `.response(_:)`, `.responseURL()`,
+        /// or `.responseData()`.
+        public func request(_ endpoint: Endpoint) -> RequestBuilder<Endpoint> {
+            RequestBuilder(endpoint: endpoint, client: self)
+        }
+
+        // MARK: - RequestBuilder Execution (internal)
+
+        func execute<Response: Decodable & Sendable>(
+            _ builder: RequestBuilder<Endpoint>
+        ) async throws -> APIResponse<Response> {
+            let endpoint = builder.endpoint
+            let method = builder.httpMethod
+            let startTime = Date()
+            let validators = builder.overrideValidators ?? self.validators
+
+            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
+
+            var attemptCount = 0
+            var firstRequest: URLRequest?
+            while true {
+                attemptCount += 1
+                do {
+                    var request = try await createBaseRequest(endpoint: endpoint, method: method)
+
+                    // Apply per-request overrides
+                    if let timeout = builder.timeoutInterval { request.timeoutInterval = timeout }
+                    if let policy = builder.cachePolicy { request.cachePolicy = policy }
+                    for (key, value) in builder.additionalHeaders { request.setValue(value, forHTTPHeaderField: key) }
+
+                    switch builder.body {
+                    case .json(let value):
+                        // Re-encode through the shared encoder for consistency
+                        let data = try encoder.encode(AnyEncodable(value))
+                        request.httpBody = data
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    case .raw(let data, let contentType):
+                        request.httpBody = data
+                        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                    case .none:
+                        break
+                    }
+
+                    if attemptCount == 1 {
+                        firstRequest = request
+                        eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
+                    }
+
+                    let (data, urlResponse) = try await session.data(for: request)
+
+                    guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                        throw APIError.invalidResponse(response: urlResponse)
+                    }
+
+                    logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+
+                    try runValidators(validators, response: httpResponse, data: data,
+                                      request: request, endpoint: endpoint)
+
+                    let decoded: Response
+                    do {
+                        decoded = try data.decode(Response.self, decoder: decoder,
+                                                  printResponseBody: false, logger: logger,
+                                                  endpoint: endpoint.stringValue, method: method.rawValue)
+                    } catch {
+                        let apiError = APIError.decodingFailed(response: httpResponse, error: error.localizedDescription)
+                        logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.errorDescription ?? "")")
+                        eventMonitor.requestDidFail(request, endpoint: endpoint.stringValue,
+                                                    method: method.rawValue, error: apiError,
+                                                    duration: Date().timeIntervalSince(startTime))
+                        throw apiError
+                    }
+
+                    eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
+                                                  method: method.rawValue, response: httpResponse,
+                                                  duration: Date().timeIntervalSince(startTime))
+                    return (decoded, httpResponse)
+
+                } catch {
+                    let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                    let decision = await interceptorChain.retry(URLRequest(url: endpoint.url),
+                                                                dueTo: apiError, attemptCount: attemptCount)
+                    switch decision {
+                    case .retry(let delay):
+                        logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s")
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestWillRetry(req, endpoint: endpoint.stringValue,
+                                                      method: method.rawValue,
+                                                      attemptCount: attemptCount, delay: delay)
+                        if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                    case .doNotRetry:
+                        logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestDidFail(req, endpoint: endpoint.stringValue,
+                                                    method: method.rawValue, error: apiError,
+                                                    duration: Date().timeIntervalSince(startTime))
+                        throw apiError
+                    }
+                }
+            }
+        }
+
+        func executeRaw(_ builder: RequestBuilder<Endpoint>) async throws -> APIResponse<Data> {
+            let endpoint = builder.endpoint
+            let method = builder.httpMethod
+            let startTime = Date()
+            let validators = builder.overrideValidators ?? self.validators
+
+            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
+
+            var attemptCount = 0
+            var firstRequest: URLRequest?
+            while true {
+                attemptCount += 1
+                do {
+                    var request = try await createBaseRequest(endpoint: endpoint, method: method)
+
+                    if let timeout = builder.timeoutInterval { request.timeoutInterval = timeout }
+                    if let policy = builder.cachePolicy { request.cachePolicy = policy }
+                    for (key, value) in builder.additionalHeaders { request.setValue(value, forHTTPHeaderField: key) }
+
+                    switch builder.body {
+                    case .json(let value):
+                        let data = try encoder.encode(AnyEncodable(value))
+                        request.httpBody = data
+                        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    case .raw(let data, let contentType):
+                        request.httpBody = data
+                        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+                    case .none:
+                        break
+                    }
+
+                    if attemptCount == 1 {
+                        firstRequest = request
+                        eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
+                    }
+
+                    let (data, urlResponse) = try await session.data(for: request)
+
+                    guard let httpResponse = urlResponse as? HTTPURLResponse else {
+                        throw APIError.invalidResponse(response: urlResponse)
+                    }
+
+                    logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
+
+                    try runValidators(validators, response: httpResponse, data: data,
+                                      request: request, endpoint: endpoint)
+
+                    eventMonitor.requestDidFinish(request, endpoint: endpoint.stringValue,
+                                                  method: method.rawValue, response: httpResponse,
+                                                  duration: Date().timeIntervalSince(startTime))
+                    return (data, httpResponse)
+
+                } catch {
+                    let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                    let decision = await interceptorChain.retry(URLRequest(url: endpoint.url),
+                                                                dueTo: apiError, attemptCount: attemptCount)
+                    switch decision {
+                    case .retry(let delay):
+                        logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | retrying (attempt \(attemptCount)) after \(delay)s")
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestWillRetry(req, endpoint: endpoint.stringValue,
+                                                      method: method.rawValue,
+                                                      attemptCount: attemptCount, delay: delay)
+                        if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                    case .doNotRetry:
+                        logger?.error("\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
+                        let req = firstRequest ?? URLRequest(url: endpoint.url)
+                        eventMonitor.requestDidFail(req, endpoint: endpoint.stringValue,
+                                                    method: method.rawValue, error: apiError,
+                                                    duration: Date().timeIntervalSince(startTime))
+                        throw apiError
+                    }
+                }
+            }
+        }
+
+        private func runValidators(
+            _ validators: [any ResponseValidator],
+            response: HTTPURLResponse,
+            data: Data,
+            request: URLRequest,
+            endpoint: Endpoint
+        ) throws {
+            if response.statusCode == 401 {
+                logger?.error("unauthorized/incorrect auth token")
+                unauthorizedHandler?(endpoint)
+            }
+            for validator in validators {
+                do {
+                    try validator.validate(response, data: data, for: request)
+                } catch {
+                    throw error as? APIError ?? APIError.serverError(
+                        response: response,
+                        code: response.statusCode,
+                        requestID: response.value(forHTTPHeaderField: "x-request-id") ?? "N/A"
+                    )
+                }
+            }
+        }
+
         // MARK: - Public Helper Functions
 
         public func performRequest<Request: Encodable>(

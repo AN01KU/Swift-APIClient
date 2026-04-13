@@ -2130,4 +2130,277 @@ struct EventMonitorTests {
     }
 }
 
+// MARK: - RequestBuilder Tests
+
+@Suite("Request Builder Tests")
+struct RequestBuilderTests {
+
+    private func makeClient(handler: @escaping MockURLProtocol.Handler)
+        -> BaseAPI.BaseAPIClient<MockEndpoint>
+    {
+        MockURLProtocol.handler = handler
+        return BaseAPI.BaseAPIClient<MockEndpoint>(sessionConfiguration: mockSessionConfiguration())
+    }
+
+    // MARK: GET / response(_:)
+
+    @Test("request(_:).response decodes JSON response")
+    func builderGetDecodesResponse() async throws {
+        let payload = TestResponse(id: "b1", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let c = makeClient { req in
+            (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let (result, _): BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "items", token: nil))
+            .response()
+        #expect(result.id == "b1")
+    }
+
+    // MARK: method override
+
+    @Test("builder sends correct HTTP method")
+    func builderSetsMethod() async throws {
+        let payload = TestResponse(id: "m", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let capturedMethod = ActorBox<String?>(nil)
+        let c = makeClient { req in
+            await capturedMethod.set(req.httpMethod)
+            return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .method(.post)
+            .response()
+        #expect(await capturedMethod.value == "POST")
+    }
+
+    // MARK: .body(_:) — JSON
+
+    @Test("builder encodes JSON body")
+    func builderEncodesJSONBody() async throws {
+        let payload = TestResponse(id: "jb", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let capturedBody = ActorBox<Data?>(nil)
+        let c = makeClient { req in
+            await capturedBody.set(req.httpBody)
+            return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .method(.post)
+            .body(TestRequest(name: "alice", value: 1))
+            .response()
+        let body = await capturedBody.value
+        #expect(body != nil)
+        let decoded = try JSONDecoder().decode(TestRequest.self, from: body!)
+        #expect(decoded.name == "alice")
+    }
+
+    // MARK: .body(raw:contentType:)
+
+    @Test("builder sends raw body unchanged")
+    func builderSendsRawBody() async throws {
+        let raw = Data("hello".utf8)
+        let payload = TestResponse(id: "r", status: "ok")
+        let responseData = try JSONEncoder().encode(payload)
+        let capturedBody = ActorBox<Data?>(nil)
+        let capturedCT = ActorBox<String?>(nil)
+        let c = makeClient { req in
+            await capturedBody.set(req.httpBody)
+            await capturedCT.set(req.value(forHTTPHeaderField: "Content-Type"))
+            return (responseData, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .method(.put)
+            .body(raw: raw, contentType: "text/plain")
+            .response()
+        #expect(await capturedBody.value == raw)
+        #expect(await capturedCT.value == "text/plain")
+    }
+
+    // MARK: .headers(_:)
+
+    @Test("builder merges additional headers")
+    func builderMergesHeaders() async throws {
+        let payload = TestResponse(id: "h", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let capturedHeader = ActorBox<String?>(nil)
+        let c = makeClient { req in
+            await capturedHeader.set(req.value(forHTTPHeaderField: "X-Trace-ID"))
+            return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .headers(["X-Trace-ID": "abc123"])
+            .response()
+        #expect(await capturedHeader.value == "abc123")
+    }
+
+    @Test("later .headers call merges with earlier call")
+    func builderHeadersMerge() async throws {
+        let payload = TestResponse(id: "hm", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let capturedA = ActorBox<String?>(nil)
+        let capturedB = ActorBox<String?>(nil)
+        let c = makeClient { req in
+            await capturedA.set(req.value(forHTTPHeaderField: "X-A"))
+            await capturedB.set(req.value(forHTTPHeaderField: "X-B"))
+            return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .headers(["X-A": "1"])
+            .headers(["X-B": "2"])
+            .response()
+        #expect(await capturedA.value == "1")
+        #expect(await capturedB.value == "2")
+    }
+
+    // MARK: .timeout(_:)
+
+    @Test("builder sets per-request timeout")
+    func builderSetsTimeout() async throws {
+        let payload = TestResponse(id: "t", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let capturedTimeout = ActorBox<TimeInterval?>(nil)
+        let c = makeClient { req in
+            await capturedTimeout.set(req.timeoutInterval)
+            return (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .timeout(42)
+            .response()
+        #expect(await capturedTimeout.value == 42)
+    }
+
+    // MARK: .validators(_:)
+
+    @Test("builder overrides validators: AcceptedStatusCodesValidator accepts 201")
+    func builderOverridesValidators() async throws {
+        let payload = TestResponse(id: "v", status: "created")
+        let data = try JSONEncoder().encode(payload)
+        let c = makeClient { req in
+            (data, HTTPURLResponse(url: req.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!)
+        }
+        // Default StatusCodeValidator accepts 200-299, so 201 passes — but we're also
+        // testing that overriding works when we explicitly restrict to {201}.
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "x", token: nil))
+            .validators([BaseAPI.AcceptedStatusCodesValidator([201])])
+            .response()
+    }
+
+    @Test("builder overridden validator rejects status not in accepted set")
+    func builderValidatorRejectsUnaccepted() async throws {
+        let c = makeClient { req in
+            (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c
+                .request(MockEndpoint(endpoint: "x", token: nil))
+                .validators([BaseAPI.AcceptedStatusCodesValidator([201])])
+                .response()
+            #expect(Bool(false), "Should have thrown")
+        } catch let err as BaseAPI.APIError {
+            if case .serverError(_, let code, _) = err {
+                #expect(code == 200)
+            } else {
+                #expect(Bool(false), "Expected serverError")
+            }
+        }
+    }
+
+    // MARK: .responseURL()
+
+    @Test("responseURL returns HTTPURLResponse without decoding body")
+    func builderResponseURL() async throws {
+        let c = makeClient { req in
+            (Data("{\"unexpected\":true}".utf8),
+             HTTPURLResponse(url: req.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!)
+        }
+        let httpResponse = try await c
+            .request(MockEndpoint(endpoint: "del", token: nil))
+            .method(.delete)
+            .validators([BaseAPI.AcceptedStatusCodesValidator([204])])
+            .responseURL()
+        #expect(httpResponse.statusCode == 204)
+    }
+
+    // MARK: .responseData()
+
+    @Test("responseData returns raw bytes")
+    func builderResponseData() async throws {
+        let raw = Data("raw content".utf8)
+        let c = makeClient { req in
+            (raw, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let (data, _) = try await c
+            .request(MockEndpoint(endpoint: "file", token: nil))
+            .responseData()
+        #expect(data == raw)
+    }
+
+    // MARK: error propagation
+
+    @Test("builder propagates server error")
+    func builderPropagatesServerError() async throws {
+        let c = makeClient { req in
+            (Data(), HTTPURLResponse(url: req.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+        }
+        do {
+            let _: BaseAPI.APIResponse<TestResponse> = try await c
+                .request(MockEndpoint(endpoint: "missing", token: nil))
+                .response()
+            #expect(Bool(false), "Should have thrown")
+        } catch let err as BaseAPI.APIError {
+            if case .serverError(_, let code, _) = err {
+                #expect(code == 404)
+            } else {
+                #expect(Bool(false), "Expected serverError")
+            }
+        }
+    }
+
+    // MARK: event monitor integration
+
+    @Test("builder fires requestDidStart and requestDidFinish")
+    func builderFiresMonitorEvents() async throws {
+        let monitor = EventMonitorTests.RecordingMonitor()
+        let payload = TestResponse(id: "em", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        MockURLProtocol.handler = { req in
+            (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let c = BaseAPI.BaseAPIClient<MockEndpoint>(
+            sessionConfiguration: mockSessionConfiguration(),
+            eventMonitors: [monitor]
+        )
+        let _: BaseAPI.APIResponse<TestResponse> = try await c
+            .request(MockEndpoint(endpoint: "em", token: nil))
+            .response()
+        #expect(monitor.starts.count == 1)
+        #expect(monitor.finishes.count == 1)
+    }
+
+    // MARK: immutability — builder is a value type
+
+    @Test("builder modifiers do not mutate the original")
+    func builderIsImmutable() async throws {
+        let payload = TestResponse(id: "imm", status: "ok")
+        let data = try JSONEncoder().encode(payload)
+        let c = makeClient { req in
+            (data, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let base = c.request(MockEndpoint(endpoint: "x", token: nil))
+        let withPost = base.method(.post)
+        let withGet  = base.method(.get)
+        #expect(withPost.httpMethod == .post)
+        #expect(withGet.httpMethod  == .get)
+        #expect(base.httpMethod     == .get)
+    }
+}
+
 } // NetworkTests
