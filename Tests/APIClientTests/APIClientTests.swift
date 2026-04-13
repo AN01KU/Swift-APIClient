@@ -34,7 +34,7 @@ struct APIClientTests {
 
     @Test("APIError descriptions")
     func apiErrorDescriptions() throws {
-        let errors: [BaseAPI.APIError] = [.encodingFailed, .networkError("Test"), .unknown]
+        let errors: [BaseAPI.APIError] = [.encodingFailed, .networkError(URLError(.timedOut)), .unknown]
         for error in errors {
             #expect(error.errorDescription != nil)
             #expect(!error.errorDescription!.isEmpty)
@@ -45,7 +45,7 @@ struct APIClientTests {
     func apiErrorClientErrorClassification() throws {
         #expect(BaseAPI.APIError.encodingFailed.isClientError == true)
         #expect(BaseAPI.APIError.decodingFailed(response: HTTPURLResponse(), error: "test").isClientError == true)
-        #expect(BaseAPI.APIError.networkError("test").isClientError == false)
+        #expect(BaseAPI.APIError.networkError(URLError(.notConnectedToInternet)).isClientError == false)
         #expect(BaseAPI.APIError.unknown.isClientError == false)
     }
 
@@ -59,7 +59,19 @@ struct APIClientTests {
             BaseAPI.APIError.serverError(response: httpResponse, code: 500, requestID: "123").getResponse()
                 == httpResponse)
         #expect(BaseAPI.APIError.decodingFailed(response: httpResponse, error: "err").getResponse() == httpResponse)
-        #expect(BaseAPI.APIError.networkError("fail").getResponse() == nil)
+        #expect(BaseAPI.APIError.networkError(URLError(.timedOut)).getResponse() == nil)
+    }
+
+    @Test("APIError networkError preserves URLError code")
+    func apiErrorNetworkErrorPreservesURLErrorCode() throws {
+        let urlError = URLError(.notConnectedToInternet)
+        let apiError = BaseAPI.APIError.networkError(urlError)
+        if case .networkError(let underlying) = apiError {
+            #expect(underlying.code == .notConnectedToInternet)
+        } else {
+            Issue.record("Expected .networkError case")
+        }
+        #expect(apiError.errorDescription?.isEmpty == false)
     }
 
     @Test("APIError localized descriptions")
@@ -69,7 +81,7 @@ struct APIClientTests {
             httpVersion: nil, headerFields: nil)!
 
         let errors: [BaseAPI.APIError] = [
-            .encodingFailed, .networkError("timeout"),
+            .encodingFailed, .networkError(URLError(.timedOut)),
             .invalidResponse(response: URLResponse()),
             .serverError(response: httpResponse, code: 400, requestID: "req-123"),
             .decodingFailed(response: httpResponse, error: "Invalid JSON"),
@@ -841,7 +853,8 @@ struct APIClientTests {
     func retryPolicyRetriesNetworkErrors() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(1), retryNetworkErrors: true)
         let decision = await policy.retry(
-            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            URLRequest(url: URL(string: "https://example.com")!),
+            dueTo: BaseAPI.APIError.networkError(URLError(.timedOut)),
             attemptCount: 1)
         if case .retry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
@@ -850,7 +863,8 @@ struct APIClientTests {
     func retryPolicySkipsNetworkErrorsByDefault() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3)
         let decision = await policy.retry(
-            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            URLRequest(url: URL(string: "https://example.com")!),
+            dueTo: BaseAPI.APIError.networkError(URLError(.timedOut)),
             attemptCount: 1)
         if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }

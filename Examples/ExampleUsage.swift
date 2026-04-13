@@ -214,8 +214,8 @@ final class APIClientDemo {
             return
         }
         switch apiError {
-        case .networkError(let message):
-            print("Network error: \(message)")
+        case .networkError(let urlError):
+            print("Network error: \(urlError.localizedDescription)")
         case .serverError(_, let code, let requestID):
             print("Server error \(code) (request ID: \(requestID))")
         case .decodingFailed(_, let message):

@@ -60,7 +60,7 @@ struct MockInterceptor: BaseAPI.RequestInterceptor {
 
 struct FailingInterceptor: BaseAPI.RequestInterceptor {
     func adapt(_ request: URLRequest) async throws -> URLRequest {
-        throw BaseAPI.APIError.networkError("Interceptor rejected request")
+        throw BaseAPI.APIError.networkError(URLError(.cancelled))
     }
 }
 

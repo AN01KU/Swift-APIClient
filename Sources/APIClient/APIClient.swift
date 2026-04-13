@@ -155,7 +155,7 @@ extension BaseAPI {
                 return httpResponse
 
             } catch {
-                let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
+                let apiError = error as? APIError ?? APIError.networkError(error as? URLError ?? URLError(.unknown))
                 logger?.error(
                     "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
                 eventMonitor.requestDidFail(

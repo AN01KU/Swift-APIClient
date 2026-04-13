@@ -184,7 +184,7 @@ extension BaseAPI.BaseAPIClient {
 
                 } catch {
                     let apiError =
-                        error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
+                        error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error as? URLError ?? URLError(.unknown))
                     eventMonitor.requestDidFail(
                         URLRequest(url: builder.endpoint.url),
                         endpoint: builder.endpoint.stringValue,
@@ -224,7 +224,7 @@ extension BaseAPI.BaseAPIClient {
             return result
 
         } catch {
-            let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
+            let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error as? URLError ?? URLError(.unknown))
             logger?.error(
                 "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
             throw apiError
@@ -305,7 +305,7 @@ extension BaseAPI.BaseAPIClient {
         firstRequest: URLRequest?,
         startTime: Date
     ) async throws -> BaseAPI.APIError? {
-        let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error.localizedDescription)
+        let apiError = error as? BaseAPI.APIError ?? BaseAPI.APIError.networkError(error as? URLError ?? URLError(.unknown))
         let decision = await interceptorChain.retry(
             URLRequest(url: endpoint.url),
             dueTo: apiError, attemptCount: attemptCount)
