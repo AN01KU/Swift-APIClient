@@ -744,13 +744,13 @@ struct NetworkTests {
         @Test("requestWillRetry fires when RetryPolicy retries")
         func retryEventFires() async throws {
             let monitor = RecordingMonitor()
-            var callCount = 0
+            let callCount = ActorBox<Int>(0)
             let payload = TestResponse(id: "r", status: "ok")
             let successData = try JSONEncoder().encode(payload)
 
             MockURLProtocol.handler = { request in
-                callCount += 1
-                if callCount == 1 {
+                await callCount.set(await callCount.value + 1)
+                if await callCount.value == 1 {
                     return (
                         Data(),
                         HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!
@@ -1033,6 +1033,158 @@ struct NetworkTests {
             {}
 
             #expect(await capturedHeader.value == "secret")
+        }
+    }
+
+    // MARK: - Multipart Builder Tests
+
+    @Suite("Multipart Builder Tests")
+    struct MultipartBuilderTests {
+
+        @Test("builder .body(multipart:) sends multipart Content-Type")
+        func builderMultipartSendsCorrectContentType() async throws {
+            let capturedContentType = ActorBox<String?>(nil)
+            MockURLProtocol.handler = { req in
+                await capturedContentType.set(req.value(forHTTPHeaderField: "Content-Type"))
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration())
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: { form in
+                    form.append("value".data(using: .utf8)!, name: "field")
+                })
+                .responseURL()
+            let ct = await capturedContentType.value
+            #expect(ct?.hasPrefix("multipart/form-data; boundary=") == true)
+        }
+
+        @Test("builder .body(multipart:) sends field data in body")
+        func builderMultipartSendsFieldData() async throws {
+            let capturedBody = ActorBox<Data?>(nil)
+            MockURLProtocol.handler = { req in
+                await capturedBody.set(req.httpBody)
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration())
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: { form in
+                    form.append("alice".data(using: .utf8)!, name: "username")
+                })
+                .responseURL()
+            let body = await capturedBody.value
+            let bodyString = body.flatMap { String(data: $0, encoding: .utf8) }
+            #expect(bodyString?.contains("username") == true)
+            #expect(bodyString?.contains("alice") == true)
+        }
+
+        @Test("builder .body(multipart:) goes through retry logic with identical body each attempt")
+        func builderMultipartParticipatesInRetry() async throws {
+            let attemptCount = ActorBox<Int>(0)
+            let capturedBodies = ActorBox<[Data]>([])
+            MockURLProtocol.handler = { req in
+                await attemptCount.set(await attemptCount.value + 1)
+                if let body = req.httpBody {
+                    var bodies = await capturedBodies.value
+                    bodies.append(body)
+                    await capturedBodies.set(bodies)
+                }
+                let count = await attemptCount.value
+                let status = count < 2 ? 500 : 200
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            }
+            let retryPolicy = BaseAPI.RetryPolicy(
+                maxAttempts: 3, backoff: .constant(0), retryableStatusCodes: [500])
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                interceptors: [retryPolicy])
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: { form in
+                    form.append("data".data(using: .utf8)!, name: "field")
+                })
+                .responseURL()
+            let bodies = await capturedBodies.value
+            #expect(await attemptCount.value == 2)
+            // Body must be identical on each attempt — same boundary, same parts
+            #expect(bodies.count == 2)
+            #expect(bodies[0] == bodies[1])
+        }
+    }
+
+    // MARK: - Unauthorized Handler Tests
+
+    @Suite("Unauthorized Handler Tests")
+    struct UnauthorizedHandlerTests {
+
+        /// Interceptor that succeeds on the second attempt (simulates token refresh).
+        struct RetryOnceInterceptor: BaseAPI.RequestInterceptor {
+            let callCount = ActorBox<Int>(0)
+
+            func adapt(_ request: URLRequest) async throws -> URLRequest { request }
+
+            func retry(
+                _ request: URLRequest, dueTo error: Error, attemptCount: Int
+            ) async -> BaseAPI.RetryDecision {
+                await callCount.set(await callCount.value + 1)
+                return attemptCount < 2 ? .retry(delay: 0) : .doNotRetry
+            }
+        }
+
+        @Test("unauthorizedHandler fires once on final 401 failure")
+        func handlerFiresOnFinalFailure() async throws {
+            MockURLProtocol.handler = { req in
+                (Data(), HTTPURLResponse(url: req.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!)
+            }
+            let handlerCallCount = ActorBox<Int>(0)
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                unauthorizedHandler: { _ in
+                    Task { await handlerCallCount.set(await handlerCallCount.value + 1) }
+                }
+            )
+            do {
+                let _: BaseAPI.APIResponse<TestResponse> =
+                    try await client.request(MockEndpoint(endpoint: "secure", token: nil)).response()
+                Issue.record("Expected throw")
+            } catch {}
+            // Brief yield so the Task inside the handler can complete.
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(await handlerCallCount.value == 1)
+        }
+
+        @Test("unauthorizedHandler does NOT fire when interceptor retries 401 and succeeds")
+        func handlerDoesNotFireOnRetrySuccess() async throws {
+            let attemptCount = ActorBox<Int>(0)
+            let successPayload = try JSONEncoder().encode(TestResponse(id: "ok", status: "ok"))
+            MockURLProtocol.handler = { req in
+                await attemptCount.set(await attemptCount.value + 1)
+                let count = await attemptCount.value
+                if count == 1 {
+                    return (Data(), HTTPURLResponse(url: req.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!)
+                }
+                return (successPayload, HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let handlerCallCount = ActorBox<Int>(0)
+            let interceptor = RetryOnceInterceptor()
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration(),
+                interceptors: [interceptor],
+                unauthorizedHandler: { _ in
+                    Task { await handlerCallCount.set(await handlerCallCount.value + 1) }
+                }
+            )
+            let (result, _): BaseAPI.APIResponse<TestResponse> =
+                try await client.request(MockEndpoint(endpoint: "secure", token: nil)).response()
+            #expect(result.id == "ok")
+            try await Task.sleep(nanoseconds: 10_000_000)
+            #expect(await handlerCallCount.value == 0)
         }
     }
 }

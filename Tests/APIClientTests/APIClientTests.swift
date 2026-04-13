@@ -25,8 +25,7 @@ struct APIClientTests {
     @Test("BaseAPIClient initialization with dependencies")
     func baseAPIClientInitializationWithDependencies() throws {
         let logger = MockLogger()
-        let analytics = MockAnalytics()
-        let client = BaseAPI.BaseAPIClient<MockEndpoint>(analytics: analytics, logger: logger)
+        let client = BaseAPI.BaseAPIClient<MockEndpoint>(logger: logger)
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
     }
 
@@ -34,7 +33,7 @@ struct APIClientTests {
 
     @Test("APIError descriptions")
     func apiErrorDescriptions() throws {
-        let errors: [BaseAPI.APIError] = [.encodingFailed, .networkError("Test"), .unknown]
+        let errors: [BaseAPI.APIError] = [.encodingFailed, .networkError(URLError(.timedOut)), .unknown]
         for error in errors {
             #expect(error.errorDescription != nil)
             #expect(!error.errorDescription!.isEmpty)
@@ -45,7 +44,7 @@ struct APIClientTests {
     func apiErrorClientErrorClassification() throws {
         #expect(BaseAPI.APIError.encodingFailed.isClientError == true)
         #expect(BaseAPI.APIError.decodingFailed(response: HTTPURLResponse(), error: "test").isClientError == true)
-        #expect(BaseAPI.APIError.networkError("test").isClientError == false)
+        #expect(BaseAPI.APIError.networkError(URLError(.notConnectedToInternet)).isClientError == false)
         #expect(BaseAPI.APIError.unknown.isClientError == false)
     }
 
@@ -59,7 +58,19 @@ struct APIClientTests {
             BaseAPI.APIError.serverError(response: httpResponse, code: 500, requestID: "123").getResponse()
                 == httpResponse)
         #expect(BaseAPI.APIError.decodingFailed(response: httpResponse, error: "err").getResponse() == httpResponse)
-        #expect(BaseAPI.APIError.networkError("fail").getResponse() == nil)
+        #expect(BaseAPI.APIError.networkError(URLError(.timedOut)).getResponse() == nil)
+    }
+
+    @Test("APIError networkError preserves URLError code")
+    func apiErrorNetworkErrorPreservesURLErrorCode() throws {
+        let urlError = URLError(.notConnectedToInternet)
+        let apiError = BaseAPI.APIError.networkError(urlError)
+        if case .networkError(let underlying) = apiError {
+            #expect(underlying.code == .notConnectedToInternet)
+        } else {
+            Issue.record("Expected .networkError case")
+        }
+        #expect(apiError.errorDescription?.isEmpty == false)
     }
 
     @Test("APIError localized descriptions")
@@ -69,7 +80,7 @@ struct APIClientTests {
             httpVersion: nil, headerFields: nil)!
 
         let errors: [BaseAPI.APIError] = [
-            .encodingFailed, .networkError("timeout"),
+            .encodingFailed, .networkError(URLError(.timedOut)),
             .invalidResponse(response: URLResponse()),
             .serverError(response: httpResponse, code: 400, requestID: "req-123"),
             .decodingFailed(response: httpResponse, error: "Invalid JSON"),
@@ -166,46 +177,101 @@ struct APIClientTests {
 
     // MARK: - Data Structure Tests
 
-    @Test("MultipartData initialization")
-    func multipartDataInitialization() throws {
-        let parameters = ["key": "value"] as? [String: AnyObject]
-        let multipartData = BaseAPI.MultipartData(
-            parameters: parameters, fileKeyName: "file",
-            fileURLs: [URL(fileURLWithPath: "/tmp/test.txt")])
-        #expect(multipartData.parameters?.count == 1)
-        #expect(multipartData.fileKeyName == "file")
-        #expect(multipartData.fileURLs?.count == 1)
+    // MARK: - MultipartFormData Tests
+
+    @Test("MultipartFormData append in-memory data field")
+    func multipartFormDataAppendData() throws {
+        let form = BaseAPI.MultipartFormData()
+        let value = "hello".data(using: .utf8)!
+        form.append(value, name: "greeting")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"greeting\""))
+        #expect(bodyString.contains("hello"))
     }
 
-    @Test("MultipartData stringValue")
-    func multipartDataStringValue() throws {
-        let parameters = ["name": "John Doe", "age": "30"] as [String: AnyObject]
-        let multipartData = BaseAPI.MultipartData(
-            parameters: parameters, fileKeyName: "uploads",
-            fileURLs: [URL(fileURLWithPath: "/tmp/test.txt"), URL(fileURLWithPath: "/tmp/image.png")])
-
-        let stringValue = multipartData.stringValue
-        #expect(stringValue.contains("parameters:"))
-        #expect(stringValue.contains("fileKeyName: uploads"))
-        #expect(stringValue.contains("files:"))
-        #expect(stringValue.contains("test.txt"))
-
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "data", fileURLs: nil).stringValue
-                == "fileKeyName: data")
+    @Test("MultipartFormData append data with filename and mimeType")
+    func multipartFormDataAppendDataWithFilename() throws {
+        let form = BaseAPI.MultipartFormData()
+        let imageData = Data([0x89, 0x50, 0x4E, 0x47]) // PNG header (valid ASCII range for test purposes)
+        form.append(imageData, name: "avatar", fileName: "photo.png", mimeType: "image/png")
+        let (body, _) = try form.encode()
+        // Headers are ASCII text; only inspect the latin-1 representable portion
+        let bodyString = String(bytes: body, encoding: .isoLatin1)!
+        #expect(bodyString.contains("name=\"avatar\""))
+        #expect(bodyString.contains("filename=\"photo.png\""))
+        #expect(bodyString.contains("image/png"))
     }
 
-    @Test("MultipartData edge cases")
-    func multipartDataEdgeCases() throws {
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "empty", fileURLs: nil).stringValue
-                == "fileKeyName: empty")
-        #expect(
-            BaseAPI.MultipartData(parameters: [:], fileKeyName: "test", fileURLs: nil).stringValue
-                == "fileKeyName: test")
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "files", fileURLs: []).stringValue
-                == "fileKeyName: files")
+    @Test("MultipartFormData append file URL")
+    func multipartFormDataAppendFileURL() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("upload.txt")
+        try "file contents".write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "attachment")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"attachment\""))
+        #expect(bodyString.contains("file contents"))
+        #expect(bodyString.contains("filename=\"upload.txt\""))
+    }
+
+    @Test("MultipartFormData append file URL with explicit MIME type")
+    func multipartFormDataAppendFileURLExplicitMIME() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("data.bin")
+        try Data([0x01, 0x02]).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "file", fileName: "renamed.bin", mimeType: "application/octet-stream")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("filename=\"renamed.bin\""))
+        #expect(bodyString.contains("application/octet-stream"))
+    }
+
+    @Test("MultipartFormData append InputStream")
+    func multipartFormDataAppendInputStream() throws {
+        let content = "stream content".data(using: .utf8)!
+        let stream = InputStream(data: content)
+        let form = BaseAPI.MultipartFormData()
+        form.append(stream, length: UInt64(content.count), name: "data", fileName: "data.txt", mimeType: "text/plain")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"data\""))
+        #expect(bodyString.contains("stream content"))
+    }
+
+    @Test("MultipartFormData Content-Type header includes boundary")
+    func multipartFormDataContentTypeHeader() throws {
+        let form = BaseAPI.MultipartFormData()
+        form.append("value".data(using: .utf8)!, name: "key")
+        let (_, contentType) = try form.encode()
+        #expect(contentType.hasPrefix("multipart/form-data; boundary="))
+        #expect(contentType.count > "multipart/form-data; boundary=".count)
+    }
+
+    @Test("MultipartFormData MIME type inferred from extension")
+    func multipartFormDataMIMEInference() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("image.png")
+        try Data().write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "img")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("image/png"))
+    }
+
+    @Test("MultipartFormData append missing file URL throws")
+    func multipartFormDataMissingFileThrows() throws {
+        let form = BaseAPI.MultipartFormData()
+        #expect(throws: (any Error).self) {
+            try form.append(fileURL: URL(fileURLWithPath: "/nonexistent/file.txt"), name: "file")
+        }
     }
 
     @Test("EmptyResponse codable")
@@ -314,25 +380,21 @@ struct APIClientTests {
         #expect(request2.httpBody == nil)
     }
 
-    @Test("URLRequest multipart data creation")
-    func urlRequestMultipartData() throws {
+    @Test("URLRequest multipart encoding sets Content-Type and body")
+    func urlRequestMultipartEncoding() throws {
         var request = URLRequest(url: URL(string: "https://example.com")!)
         let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test.txt")
         try "Test file content".write(to: tempURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        let multipartData = BaseAPI.MultipartData(
-            parameters: ["description": "Test upload"] as [String: AnyObject],
-            fileKeyName: "file", fileURLs: [tempURL])
-
-        try request.addMultipartData(data: multipartData)
+        let form = BaseAPI.MultipartFormData()
+        form.append("Test upload".data(using: .utf8)!, name: "description")
+        try form.append(fileURL: tempURL, name: "file")
+        try request.applyMultipart(form)
 
         #expect(request.httpBody != nil)
-        #expect(request.value(forHTTPHeaderField: "Content-Type")?.contains("multipart/form-data") == true)
-        #expect(request.timeoutInterval == 60)
-        #expect(request.cachePolicy == .reloadIgnoringLocalAndRemoteCacheData)
-
-        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
+        #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data; boundary=") == true)
+        if let bodyString = request.httpBody.flatMap({ String(data: $0, encoding: .utf8) }) {
             #expect(bodyString.contains("Test file content"))
             #expect(bodyString.contains("Test upload"))
         }
@@ -354,7 +416,7 @@ struct APIClientTests {
         #expect(BaseAPI.HTTPMethod.put.rawValue == "PUT")
         #expect(BaseAPI.HTTPMethod.patch.rawValue == "PATCH")
         #expect(BaseAPI.HTTPMethod.delete.rawValue == "DELETE")
-        #expect(BaseAPI.HTTPMethod.allCases.count == 5)
+        #expect(BaseAPI.HTTPMethod.allCases.count == 7)
     }
 
     @Test("HTTPMethod comprehensive coverage")
@@ -364,35 +426,20 @@ struct APIClientTests {
             #expect(!method.rawValue.isEmpty)
             #expect(method.rawValue.allSatisfy { $0.isUppercase })
         }
-        #expect(Set(methods.map { $0.rawValue }) == ["GET", "POST", "PUT", "PATCH", "DELETE"])
+        #expect(Set(methods.map { $0.rawValue }) == ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
     }
 
-    // MARK: - Analytics Tests
-
-    @Test("Analytics data tracking")
-    func analyticsDataTracking() throws {
-        let analytics = MockAnalytics()
-        let startTime = Date()
-        let endTime = Date().addingTimeInterval(0.5)
-
-        analytics.addAnalytics(
-            endpoint: "/api/users", method: "GET", startTime: startTime,
-            endTime: endTime, success: true, statusCode: 200, error: nil)
-        analytics.addAnalytics(
-            endpoint: "/api/users", method: "POST", startTime: startTime,
-            endTime: endTime, success: false, statusCode: 422, error: "Validation failed")
-
-        #expect(analytics.analyticsData.count == 2)
-        #expect(analytics.analyticsData[0].success == true)
-        #expect(analytics.analyticsData[0].statusCode == 200)
-        #expect(analytics.analyticsData[1].success == false)
-        #expect(analytics.analyticsData[1].error == "Validation failed")
+    @Test("HTTPMethod includes HEAD and OPTIONS")
+    func httpMethodHeadAndOptions() throws {
+        #expect(BaseAPI.HTTPMethod.head.rawValue == "HEAD")
+        #expect(BaseAPI.HTTPMethod.options.rawValue == "OPTIONS")
+        #expect(BaseAPI.HTTPMethod.allCases.count == 7)
     }
 
     // MARK: - BaseAPIClient Configuration Tests
 
     @Test("BaseAPIClient custom configuration")
-    func baseAPIClientCustomConfiguration() throws {
+    func baseAPIClientCustomConfiguration() async throws {
         let sessionConfig = URLSessionConfiguration.default
         sessionConfig.timeoutIntervalForRequest = 15
 
@@ -402,17 +449,16 @@ struct APIClientTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        var unauthorizedCount = 0
+        let unauthorizedCount = ActorBox<Int>(0)
         let client = BaseAPI.BaseAPIClient<MockEndpoint>(
             sessionConfiguration: sessionConfig,
             encoder: encoder,
             decoder: decoder,
-            analytics: MockAnalytics(),
             logger: MockLogger(),
-            unauthorizedHandler: { _ in unauthorizedCount += 1 }
+            unauthorizedHandler: { _ in Task { await unauthorizedCount.set(await unauthorizedCount.value + 1) } }
         )
         #expect(type(of: client) == BaseAPI.BaseAPIClient<MockEndpoint>.self)
-        #expect(unauthorizedCount == 0)
+        #expect(await unauthorizedCount.value == 0)
     }
 
     @Test("Request body encoding")
@@ -421,6 +467,47 @@ struct APIClientTests {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json?["name"] as? String == "John Doe")
         #expect(json?["value"] as? Int == 42)
+    }
+
+    // MARK: - AnyEncodable Tests
+
+    @Test("AnyEncodable round-trips a simple struct")
+    func anyEncodableRoundTripsSimpleStruct() throws {
+        let value = TestRequest(name: "Alice", value: 7)
+        let data = try JSONEncoder().encode(AnyEncodable(value))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["name"] as? String == "Alice")
+        #expect(json?["value"] as? Int == 7)
+    }
+
+    @Test("AnyEncodable round-trips a nested struct")
+    func anyEncodableRoundTripsNestedStruct() throws {
+        struct Outer: Encodable {
+            let inner: TestRequest
+            let label: String
+        }
+        let value = Outer(inner: TestRequest(name: "Bob", value: 3), label: "test")
+        let data = try JSONEncoder().encode(AnyEncodable(value))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["label"] as? String == "test")
+        let inner = json?["inner"] as? [String: Any]
+        #expect(inner?["name"] as? String == "Bob")
+    }
+
+    @Test("AnyEncodable works with any Encodable existential")
+    func anyEncodableWorksWithExistential() throws {
+        let values: [any Encodable] = [TestRequest(name: "C", value: 1), TestResponse(id: "x", status: "ok")]
+        for value in values {
+            let data = try JSONEncoder().encode(AnyEncodable(value))
+            #expect(!data.isEmpty)
+        }
+    }
+
+    @Test("AnyEncodable propagates encoding failure")
+    func anyEncodablePropagatesFailure() throws {
+        #expect(throws: (any Error).self) {
+            _ = try JSONEncoder().encode(AnyEncodable(UnencodableBody()))
+        }
     }
 
     @Test("JSON encoder/decoder configuration")
@@ -834,7 +921,8 @@ struct APIClientTests {
     func retryPolicyRetriesNetworkErrors() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3, backoff: .constant(1), retryNetworkErrors: true)
         let decision = await policy.retry(
-            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            URLRequest(url: URL(string: "https://example.com")!),
+            dueTo: BaseAPI.APIError.networkError(URLError(.timedOut)),
             attemptCount: 1)
         if case .retry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }
@@ -843,7 +931,8 @@ struct APIClientTests {
     func retryPolicySkipsNetworkErrorsByDefault() async {
         let policy = BaseAPI.RetryPolicy(maxAttempts: 3)
         let decision = await policy.retry(
-            URLRequest(url: URL(string: "https://example.com")!), dueTo: BaseAPI.APIError.networkError("timeout"),
+            URLRequest(url: URL(string: "https://example.com")!),
+            dueTo: BaseAPI.APIError.networkError(URLError(.timedOut)),
             attemptCount: 1)
         if case .doNotRetry = decision { #expect(Bool(true)) } else { #expect(Bool(false)) }
     }

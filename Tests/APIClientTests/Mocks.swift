@@ -60,24 +60,7 @@ struct MockInterceptor: BaseAPI.RequestInterceptor {
 
 struct FailingInterceptor: BaseAPI.RequestInterceptor {
     func adapt(_ request: URLRequest) async throws -> URLRequest {
-        throw BaseAPI.APIError.networkError("Interceptor rejected request")
-    }
-}
-
-// MARK: - Mock Analytics
-
-final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
-    var analyticsData:
-        [(
-            endpoint: String, method: String, startTime: Date, endTime: Date,
-            success: Bool, statusCode: Int?, error: String?
-        )] = []
-
-    func addAnalytics(
-        endpoint: String, method: String, startTime: Date, endTime: Date,
-        success: Bool, statusCode: Int?, error: String?
-    ) {
-        analyticsData.append((endpoint, method, startTime, endTime, success, statusCode, error))
+        throw BaseAPI.APIError.networkError(URLError(.cancelled))
     }
 }
 
@@ -86,7 +69,7 @@ final class MockAnalytics: BaseAPI.APIAnalytics, @unchecked Sendable {
 /// URLProtocol subclass that intercepts requests and calls a handler closure.
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) async -> (Data, HTTPURLResponse)
-    static var handler: Handler?
+    nonisolated(unsafe) static var handler: Handler?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

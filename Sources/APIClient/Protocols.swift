@@ -46,21 +46,6 @@ extension BaseAPI {
         func warn(_ value: String)
     }
 
-    /// Protocol for analytics tracking of API operations
-    @available(
-        *, deprecated, renamed: "RequestEventMonitor", message: "Use RequestEventMonitor for richer lifecycle events."
-    )
-    public protocol APIAnalytics: Sendable {
-        func addAnalytics(
-            endpoint: String,
-            method: String,
-            startTime: Date,
-            endTime: Date,
-            success: Bool,
-            statusCode: Int?,
-            error: String?
-        )
-    }
 
     /// Observer protocol for fine-grained request lifecycle events.
     ///

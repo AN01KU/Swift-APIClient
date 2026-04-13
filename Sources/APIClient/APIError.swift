@@ -5,7 +5,7 @@ extension BaseAPI {
     /// Comprehensive error enum for API operations
     public enum APIError: Error, LocalizedError {
         case encodingFailed
-        case networkError(String)
+        case networkError(URLError)
         case invalidResponse(response: URLResponse)
         case serverError(response: HTTPURLResponse, code: Int, requestID: String)
         case decodingFailed(response: HTTPURLResponse, error: String)
@@ -15,8 +15,8 @@ extension BaseAPI {
             switch self {
             case .encodingFailed:
                 return "Failed to encode request body"
-            case .networkError(let message):
-                return "Network error: \(message)"
+            case .networkError(let urlError):
+                return "Network error: \(urlError.localizedDescription)"
             case .invalidResponse:
                 return "Invalid response received"
             case .serverError(_, let code, let requestID):

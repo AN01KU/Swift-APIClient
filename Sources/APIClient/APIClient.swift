@@ -6,6 +6,9 @@ extension BaseAPI {
     ///
     /// Parameterized on a concrete ``APIEndpoint`` type. Subclass or instantiate directly.
     /// All network execution is delegated to ``RequestExecution``.
+    ///
+    /// `@unchecked Sendable` because `JSONEncoder` and `JSONDecoder` lack `Sendable` conformance,
+    /// though all stored properties are set once at init and never mutated thereafter.
     open class BaseAPIClient<Endpoint: APIEndpoint>: @unchecked Sendable {
 
         // MARK: - Properties
@@ -16,8 +19,6 @@ extension BaseAPI {
         let interceptorChain: InterceptorChain
         let validators: [any ResponseValidator]
         let eventMonitor: EventMonitorGroup
-        @available(*, deprecated, renamed: "eventMonitors")
-        let analytics: (any APIAnalytics)?
         let logger: (any APIClientLoggingProtocol)?
         let unauthorizedHandler: (@Sendable (Endpoint) -> Void)?
 
@@ -37,7 +38,6 @@ extension BaseAPI {
             interceptors: [any RequestInterceptor] = [],
             validators: [any ResponseValidator] = [StatusCodeValidator()],
             eventMonitors: [any RequestEventMonitor] = [],
-            analytics: (any APIAnalytics)? = nil,
             logger: (any APIClientLoggingProtocol)? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -47,7 +47,6 @@ extension BaseAPI {
             self.interceptorChain = InterceptorChain(interceptors)
             self.validators = validators
             self.eventMonitor = EventMonitorGroup(eventMonitors)
-            self.analytics = analytics
             self.logger = logger
             self.unauthorizedHandler = unauthorizedHandler
         }
@@ -60,7 +59,6 @@ extension BaseAPI {
             interceptor: (any RequestInterceptor)?,
             validators: [any ResponseValidator] = [StatusCodeValidator()],
             eventMonitors: [any RequestEventMonitor] = [],
-            analytics: (any APIAnalytics)? = nil,
             logger: (any APIClientLoggingProtocol)? = nil,
             unauthorizedHandler: (@Sendable (Endpoint) -> Void)? = nil
         ) {
@@ -71,7 +69,6 @@ extension BaseAPI {
                 interceptors: interceptor.map { [$0] } ?? [],
                 validators: validators,
                 eventMonitors: eventMonitors,
-                analytics: analytics,
                 logger: logger,
                 unauthorizedHandler: unauthorizedHandler
             )
@@ -79,20 +76,20 @@ extension BaseAPI {
 
         // MARK: - GET
 
-        public func get<Response: Decodable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
+        public func get<Response: Decodable & Sendable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
             try await request(endpoint).response()
         }
 
         // MARK: - POST
 
-        public func post<Request: Encodable>(
+        public func post<Request: Encodable & Sendable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
             try await request(endpoint).method(.post).body(body).responseURL()
         }
 
-        public func post<Request: Encodable, Response: Decodable>(
+        public func post<Request: Encodable & Sendable, Response: Decodable & Sendable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> APIResponse<Response> {
@@ -101,7 +98,7 @@ extension BaseAPI {
 
         // MARK: - PUT
 
-        public func put<Request: Encodable>(
+        public func put<Request: Encodable & Sendable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
@@ -110,7 +107,7 @@ extension BaseAPI {
 
         // MARK: - PATCH
 
-        public func patch<Request: Encodable>(
+        public func patch<Request: Encodable & Sendable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
@@ -123,67 +120,40 @@ extension BaseAPI {
             try await request(endpoint).method(.delete).responseURL()
         }
 
-        public func delete<Response: Decodable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
+        public func delete<Response: Decodable & Sendable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.delete).response()
         }
 
         // MARK: - Multipart Upload
 
+        @available(*, deprecated, message: "Use request(_:).method(_:).body(multipart:).responseURL() instead.")
         public func multipartUpload(
             _ endpoint: Endpoint,
             method: BaseAPI.HTTPMethod,
-            data: MultipartData
+            form: MultipartFormData
         ) async throws -> HTTPURLResponse {
-            let startTime = Date()
-            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
-
-            do {
-                var req = try await createBaseRequest(endpoint: endpoint, method: method)
-                try req.addMultipartData(data: data)
-
-                let (responseData, urlResponse) = try await session.data(for: req)
-
-                guard let httpResponse = urlResponse as? HTTPURLResponse else {
-                    throw APIError.invalidResponse(response: urlResponse)
-                }
-
-                logger?.info(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
-                try runValidators(
-                    validators, response: httpResponse, data: responseData,
-                    request: req, endpoint: endpoint)
-                return httpResponse
-
-            } catch {
-                let apiError = error as? APIError ?? APIError.networkError(error.localizedDescription)
-                logger?.error(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
-                eventMonitor.requestDidFail(
-                    URLRequest(url: endpoint.url), endpoint: endpoint.stringValue,
-                    method: method.rawValue, error: apiError,
-                    duration: Date().timeIntervalSince(startTime)
-                )
-                throw apiError
-            }
+            var builder = request(endpoint).method(method)
+            builder.body = .multipart(form)
+            return try await builder.responseURL()
         }
 
         // MARK: - Raw Data Body
 
-        public func post<Response: Decodable>(
+        public func post<Response: Decodable & Sendable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.post).body(raw: rawBody).response()
         }
 
-        public func put<Response: Decodable>(
+        public func put<Response: Decodable & Sendable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.put).body(raw: rawBody).response()
         }
 
-        public func patch<Response: Decodable>(
+        public func patch<Response: Decodable & Sendable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {

@@ -24,54 +24,11 @@ extension URLRequest {
         }
     }
 
-    mutating func addMultipartData(data: BaseAPI.MultipartData) throws {
-        let boundary = "Boundary-\(UUID().uuidString)"
-
-        setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        timeoutInterval = 60
-        cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-
-        do {
-            httpBody = try createMultipartBody(data: data, boundary: boundary)
-        } catch {
-            throw BaseAPI.APIError.encodingFailed
-        }
-    }
-
-    private func createMultipartBody(
-        data: BaseAPI.MultipartData,
-        boundary: String
-    ) throws -> Data {
-        var body = Data()
-
-        // Add parameters
-        if let parameters = data.parameters {
-            for (key, value) in parameters {
-                body.appendString("--\(boundary)\r\n")
-                body.appendString("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
-                body.appendString("\(value)\r\n")
-            }
-        }
-
-        // Add files
-        if let fileURLs = data.fileURLs {
-            for fileURL in fileURLs {
-                let filename = fileURL.lastPathComponent
-                let fileData = try Data(contentsOf: fileURL)
-                let mimeType = URLSession.mimeTypeForPath(fileURL.pathExtension)
-
-                body.appendString("--\(boundary)\r\n")
-                body.appendString(
-                    "Content-Disposition: form-data; name=\"\(data.fileKeyName)\"; filename=\"\(filename)\"\r\n"
-                )
-                body.appendString("Content-Type: \(mimeType)\r\n\r\n")
-                body.append(fileData)
-                body.appendString("\r\n")
-            }
-        }
-
-        body.appendString("--\(boundary)--\r\n")
-        return body
+    /// Encode `form` and apply the resulting body and `Content-Type` header to the request.
+    mutating func applyMultipart(_ form: BaseAPI.MultipartFormData) throws {
+        let (body, contentType) = try form.encode()
+        httpBody = body
+        setValue(contentType, forHTTPHeaderField: "Content-Type")
     }
 }
 
