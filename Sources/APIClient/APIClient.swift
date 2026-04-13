@@ -133,39 +133,11 @@ extension BaseAPI {
         public func multipartUpload(
             _ endpoint: Endpoint,
             method: BaseAPI.HTTPMethod,
-            data: MultipartData
+            form: MultipartFormData
         ) async throws -> HTTPURLResponse {
-            let startTime = Date()
-            logger?.info("\(method.rawValue):\(endpoint.stringValue) REQUEST | started")
-
-            do {
-                var req = try await createBaseRequest(endpoint: endpoint, method: method)
-                try req.addMultipartData(data: data)
-
-                let (responseData, urlResponse) = try await session.data(for: req)
-
-                guard let httpResponse = urlResponse as? HTTPURLResponse else {
-                    throw APIError.invalidResponse(response: urlResponse)
-                }
-
-                logger?.info(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | Response code: \(httpResponse.statusCode)")
-                try runValidators(
-                    validators, response: httpResponse, data: responseData,
-                    request: req, endpoint: endpoint)
-                return httpResponse
-
-            } catch {
-                let apiError = error as? APIError ?? APIError.networkError(error as? URLError ?? URLError(.unknown))
-                logger?.error(
-                    "\(method.rawValue):\(endpoint.stringValue) REQUEST | error: \(apiError.localizedDescription)")
-                eventMonitor.requestDidFail(
-                    URLRequest(url: endpoint.url), endpoint: endpoint.stringValue,
-                    method: method.rawValue, error: apiError,
-                    duration: Date().timeIntervalSince(startTime)
-                )
-                throw apiError
-            }
+            var builder = request(endpoint).method(method)
+            builder.body = .multipart(form)
+            return try await builder.responseURL()
         }
 
         // MARK: - Raw Data Body

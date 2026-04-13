@@ -1050,14 +1050,37 @@ struct NetworkTests {
             }
             let client = BaseAPI.BaseAPIClient<MockEndpoint>(
                 sessionConfiguration: mockSessionConfiguration())
-            let multipartData = BaseAPI.MultipartData(parameters: nil, fileKeyName: "file", fileURLs: nil)
             _ = try await client
                 .request(MockEndpoint(endpoint: "upload", token: nil))
                 .method(.post)
-                .body(multipart: multipartData)
+                .body(multipart: { form in
+                    form.append("value".data(using: .utf8)!, name: "field")
+                })
                 .responseURL()
             let ct = await capturedContentType.value
-            #expect(ct?.contains("multipart/form-data") == true)
+            #expect(ct?.hasPrefix("multipart/form-data; boundary=") == true)
+        }
+
+        @Test("builder .body(multipart:) sends field data in body")
+        func builderMultipartSendsFieldData() async throws {
+            let capturedBody = ActorBox<Data?>(nil)
+            MockURLProtocol.handler = { req in
+                await capturedBody.set(req.httpBody)
+                return (Data(), HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            let client = BaseAPI.BaseAPIClient<MockEndpoint>(
+                sessionConfiguration: mockSessionConfiguration())
+            _ = try await client
+                .request(MockEndpoint(endpoint: "upload", token: nil))
+                .method(.post)
+                .body(multipart: { form in
+                    form.append("alice".data(using: .utf8)!, name: "username")
+                })
+                .responseURL()
+            let body = await capturedBody.value
+            let bodyString = body.flatMap { String(data: $0, encoding: .utf8) }
+            #expect(bodyString?.contains("username") == true)
+            #expect(bodyString?.contains("alice") == true)
         }
 
         @Test("builder .body(multipart:) goes through retry logic")
@@ -1074,11 +1097,12 @@ struct NetworkTests {
             let client = BaseAPI.BaseAPIClient<MockEndpoint>(
                 sessionConfiguration: mockSessionConfiguration(),
                 interceptors: [retryPolicy])
-            let multipartData = BaseAPI.MultipartData(parameters: nil, fileKeyName: "file", fileURLs: nil)
             _ = try await client
                 .request(MockEndpoint(endpoint: "upload", token: nil))
                 .method(.post)
-                .body(multipart: multipartData)
+                .body(multipart: { form in
+                    form.append("data".data(using: .utf8)!, name: "field")
+                })
                 .responseURL()
             #expect(await attemptCount.value == 2)
         }

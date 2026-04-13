@@ -178,46 +178,101 @@ struct APIClientTests {
 
     // MARK: - Data Structure Tests
 
-    @Test("MultipartData initialization")
-    func multipartDataInitialization() throws {
-        let parameters: [String: String]? = ["key": "value"]
-        let multipartData = BaseAPI.MultipartData(
-            parameters: parameters, fileKeyName: "file",
-            fileURLs: [URL(fileURLWithPath: "/tmp/test.txt")])
-        #expect(multipartData.parameters?.count == 1)
-        #expect(multipartData.fileKeyName == "file")
-        #expect(multipartData.fileURLs?.count == 1)
+    // MARK: - MultipartFormData Tests
+
+    @Test("MultipartFormData append in-memory data field")
+    func multipartFormDataAppendData() throws {
+        let form = BaseAPI.MultipartFormData()
+        let value = "hello".data(using: .utf8)!
+        form.append(value, name: "greeting")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"greeting\""))
+        #expect(bodyString.contains("hello"))
     }
 
-    @Test("MultipartData stringValue")
-    func multipartDataStringValue() throws {
-        let parameters: [String: String] = ["name": "John Doe", "age": "30"]
-        let multipartData = BaseAPI.MultipartData(
-            parameters: parameters, fileKeyName: "uploads",
-            fileURLs: [URL(fileURLWithPath: "/tmp/test.txt"), URL(fileURLWithPath: "/tmp/image.png")])
-
-        let stringValue = multipartData.stringValue
-        #expect(stringValue.contains("parameters:"))
-        #expect(stringValue.contains("fileKeyName: uploads"))
-        #expect(stringValue.contains("files:"))
-        #expect(stringValue.contains("test.txt"))
-
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "data", fileURLs: nil).stringValue
-                == "fileKeyName: data")
+    @Test("MultipartFormData append data with filename and mimeType")
+    func multipartFormDataAppendDataWithFilename() throws {
+        let form = BaseAPI.MultipartFormData()
+        let imageData = Data([0x89, 0x50, 0x4E, 0x47]) // PNG header (valid ASCII range for test purposes)
+        form.append(imageData, name: "avatar", fileName: "photo.png", mimeType: "image/png")
+        let (body, _) = try form.encode()
+        // Headers are ASCII text; only inspect the latin-1 representable portion
+        let bodyString = String(bytes: body, encoding: .isoLatin1)!
+        #expect(bodyString.contains("name=\"avatar\""))
+        #expect(bodyString.contains("filename=\"photo.png\""))
+        #expect(bodyString.contains("image/png"))
     }
 
-    @Test("MultipartData edge cases")
-    func multipartDataEdgeCases() throws {
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "empty", fileURLs: nil).stringValue
-                == "fileKeyName: empty")
-        #expect(
-            BaseAPI.MultipartData(parameters: [:], fileKeyName: "test", fileURLs: nil).stringValue
-                == "fileKeyName: test")
-        #expect(
-            BaseAPI.MultipartData(parameters: nil, fileKeyName: "files", fileURLs: []).stringValue
-                == "fileKeyName: files")
+    @Test("MultipartFormData append file URL")
+    func multipartFormDataAppendFileURL() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("upload.txt")
+        try "file contents".write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "attachment")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"attachment\""))
+        #expect(bodyString.contains("file contents"))
+        #expect(bodyString.contains("filename=\"upload.txt\""))
+    }
+
+    @Test("MultipartFormData append file URL with explicit MIME type")
+    func multipartFormDataAppendFileURLExplicitMIME() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("data.bin")
+        try Data([0x01, 0x02]).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "file", fileName: "renamed.bin", mimeType: "application/octet-stream")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("filename=\"renamed.bin\""))
+        #expect(bodyString.contains("application/octet-stream"))
+    }
+
+    @Test("MultipartFormData append InputStream")
+    func multipartFormDataAppendInputStream() throws {
+        let content = "stream content".data(using: .utf8)!
+        let stream = InputStream(data: content)
+        let form = BaseAPI.MultipartFormData()
+        form.append(stream, length: UInt64(content.count), name: "data", fileName: "data.txt", mimeType: "text/plain")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("name=\"data\""))
+        #expect(bodyString.contains("stream content"))
+    }
+
+    @Test("MultipartFormData Content-Type header includes boundary")
+    func multipartFormDataContentTypeHeader() throws {
+        let form = BaseAPI.MultipartFormData()
+        form.append("value".data(using: .utf8)!, name: "key")
+        let (_, contentType) = try form.encode()
+        #expect(contentType.hasPrefix("multipart/form-data; boundary="))
+        #expect(contentType.count > "multipart/form-data; boundary=".count)
+    }
+
+    @Test("MultipartFormData MIME type inferred from extension")
+    func multipartFormDataMIMEInference() throws {
+        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("image.png")
+        try Data().write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let form = BaseAPI.MultipartFormData()
+        try form.append(fileURL: tempURL, name: "img")
+        let (body, _) = try form.encode()
+        let bodyString = String(data: body, encoding: .utf8)!
+        #expect(bodyString.contains("image/png"))
+    }
+
+    @Test("MultipartFormData append missing file URL throws")
+    func multipartFormDataMissingFileThrows() throws {
+        let form = BaseAPI.MultipartFormData()
+        #expect(throws: (any Error).self) {
+            try form.append(fileURL: URL(fileURLWithPath: "/nonexistent/file.txt"), name: "file")
+        }
     }
 
     @Test("EmptyResponse codable")
@@ -326,25 +381,21 @@ struct APIClientTests {
         #expect(request2.httpBody == nil)
     }
 
-    @Test("URLRequest multipart data creation")
-    func urlRequestMultipartData() throws {
+    @Test("URLRequest multipart encoding sets Content-Type and body")
+    func urlRequestMultipartEncoding() throws {
         var request = URLRequest(url: URL(string: "https://example.com")!)
         let tempURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test.txt")
         try "Test file content".write(to: tempURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        let multipartData = BaseAPI.MultipartData(
-            parameters: ["description": "Test upload"],
-            fileKeyName: "file", fileURLs: [tempURL])
-
-        try request.addMultipartData(data: multipartData)
+        let form = BaseAPI.MultipartFormData()
+        form.append("Test upload".data(using: .utf8)!, name: "description")
+        try form.append(fileURL: tempURL, name: "file")
+        try request.applyMultipart(form)
 
         #expect(request.httpBody != nil)
-        #expect(request.value(forHTTPHeaderField: "Content-Type")?.contains("multipart/form-data") == true)
-        #expect(request.timeoutInterval == 60)
-        #expect(request.cachePolicy == .reloadIgnoringLocalAndRemoteCacheData)
-
-        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
+        #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data; boundary=") == true)
+        if let bodyString = request.httpBody.flatMap({ String(data: $0, encoding: .utf8) }) {
             #expect(bodyString.contains("Test file content"))
             #expect(bodyString.contains("Test upload"))
         }
