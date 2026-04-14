@@ -5,9 +5,9 @@ extension BaseAPI {
     // MARK: - RequestBody
 
     /// Represents the body of an HTTP request.
-    public enum RequestBody: Sendable {
+    public enum RequestBody: @unchecked Sendable {
         /// Encode the value as JSON using the client's `JSONEncoder`.
-        case json(any (Encodable & Sendable))
+        case json(any Encodable)
         /// Percent-encode key/value pairs as `application/x-www-form-urlencoded`.
         case formURL([String: String])
         /// Send raw bytes as-is (e.g. pre-serialized JSON, binary payloads).
@@ -85,7 +85,7 @@ extension BaseAPI {
         }
 
         /// Set the request body to a JSON-encodable value.
-        public func body<T: Encodable & Sendable>(_ value: T) -> Self {
+        public func body<T: Encodable>(_ value: T) -> Self {
             var copy = self
             copy.body = .json(value)
             return copy
@@ -161,7 +161,7 @@ extension BaseAPI {
         /// Execute the request and decode the response body.
         ///
         /// - Returns: `(data: Response, response: HTTPURLResponse)`
-        public func response<Response: Decodable & Sendable>(_ type: Response.Type = Response.self)
+        public func response<Response: Decodable>(_ type: Response.Type = Response.self)
             async throws -> APIResponse<Response>
         {
             try await client.execute(self)
