@@ -76,20 +76,20 @@ extension BaseAPI {
 
         // MARK: - GET
 
-        public func get<Response: Decodable & Sendable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
+        public func get<Response: Decodable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
             try await request(endpoint).response()
         }
 
         // MARK: - POST
 
-        public func post<Request: Encodable & Sendable>(
+        public func post<Request: Encodable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
             try await request(endpoint).method(.post).body(body).responseURL()
         }
 
-        public func post<Request: Encodable & Sendable, Response: Decodable & Sendable>(
+        public func post<Request: Encodable, Response: Decodable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> APIResponse<Response> {
@@ -98,7 +98,7 @@ extension BaseAPI {
 
         // MARK: - PUT
 
-        public func put<Request: Encodable & Sendable>(
+        public func put<Request: Encodable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
@@ -107,7 +107,7 @@ extension BaseAPI {
 
         // MARK: - PATCH
 
-        public func patch<Request: Encodable & Sendable>(
+        public func patch<Request: Encodable>(
             _ endpoint: Endpoint,
             body: Request
         ) async throws -> HTTPURLResponse {
@@ -120,7 +120,7 @@ extension BaseAPI {
             try await request(endpoint).method(.delete).responseURL()
         }
 
-        public func delete<Response: Decodable & Sendable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
+        public func delete<Response: Decodable>(_ endpoint: Endpoint) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.delete).response()
         }
 
@@ -139,21 +139,21 @@ extension BaseAPI {
 
         // MARK: - Raw Data Body
 
-        public func post<Response: Decodable & Sendable>(
+        public func post<Response: Decodable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.post).body(raw: rawBody).response()
         }
 
-        public func put<Response: Decodable & Sendable>(
+        public func put<Response: Decodable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {
             try await request(endpoint).method(.put).body(raw: rawBody).response()
         }
 
-        public func patch<Response: Decodable & Sendable>(
+        public func patch<Response: Decodable>(
             _ endpoint: Endpoint,
             rawBody: Data
         ) async throws -> APIResponse<Response> {

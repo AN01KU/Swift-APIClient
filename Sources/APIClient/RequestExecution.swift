@@ -4,7 +4,7 @@ extension BaseAPI.BaseAPIClient {
 
     // MARK: - Builder Execution
 
-    func execute<Response: Decodable & Sendable>(
+    func execute<Response: Decodable>(
         _ builder: BaseAPI.RequestBuilder<Endpoint>
     ) async throws -> BaseAPI.APIResponse<Response> {
         let startTime = Date()
