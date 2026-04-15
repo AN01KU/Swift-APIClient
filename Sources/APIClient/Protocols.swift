@@ -112,17 +112,14 @@ extension BaseAPI.RequestInterceptor {
 extension BaseAPI.APIEndpoint {
     /// Constructed URL from baseURL + path + queryParameters
     public var url: URL {
-        var components = URLComponents(
-            url: baseURL.appendingPathComponent(path),
-            resolvingAgainstBaseURL: false
-        )
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        components.path = components.path + path
         if let queryParameters, !queryParameters.isEmpty {
-            components?.queryItems =
-                queryParameters
+            components.queryItems = queryParameters
                 .sorted { $0.key < $1.key }
                 .map { URLQueryItem(name: $0.key, value: $0.value) }
         }
-        return components?.url ?? baseURL.appendingPathComponent(path)
+        return components.url ?? baseURL
     }
 
     /// String representation for logging
