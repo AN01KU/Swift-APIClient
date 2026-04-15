@@ -113,7 +113,9 @@ extension BaseAPI.APIEndpoint {
     /// Constructed URL from baseURL + path + queryParameters
     public var url: URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        components.path = components.path + path
+        let basePath = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
+        let segment = path.hasPrefix("/") ? path : "/\(path)"
+        components.path = basePath + segment
         if let queryParameters, !queryParameters.isEmpty {
             components.queryItems = queryParameters
                 .sorted { $0.key < $1.key }
