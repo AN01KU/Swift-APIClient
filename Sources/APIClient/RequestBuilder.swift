@@ -60,6 +60,7 @@ extension BaseAPI {
 
         var httpMethod: BaseAPI.HTTPMethod = .get
         var additionalHeaders: [String: String] = [:]
+        var additionalQueryParameters: [String: String] = [:]
         var body: RequestBody = .none
         var timeoutInterval: TimeInterval? = nil
         var cachePolicy: URLRequest.CachePolicy? = nil
@@ -81,6 +82,14 @@ extension BaseAPI {
         public func headers(_ headers: [String: String]) -> Self {
             var copy = self
             copy.additionalHeaders = self.additionalHeaders.merging(headers) { _, new in new }
+            return copy
+        }
+
+        /// Merge additional query parameters into the request URL.
+        /// These are merged with the endpoint's own `queryParameters`; call-site values win on conflict.
+        public func queryParameters(_ params: [String: String]) -> Self {
+            var copy = self
+            copy.additionalQueryParameters = self.additionalQueryParameters.merging(params) { _, new in new }
             return copy
         }
 

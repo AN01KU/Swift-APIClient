@@ -53,7 +53,9 @@ extension BaseAPI.BaseAPIClient {
         while true {
             attemptCount += 1
             do {
-                var request = try await createBaseRequest(endpoint: endpoint, method: method)
+                var request = try await createBaseRequest(
+                    endpoint: endpoint, method: method,
+                    additionalQueryParameters: builder.additionalQueryParameters)
                 try applyBuilderOverrides(builder, to: &request)
 
                 if attemptCount == 1 {
@@ -99,7 +101,9 @@ extension BaseAPI.BaseAPIClient {
                 let validators = builder.overrideValidators ?? self.validators
 
                 do {
-                    var request = try await createBaseRequest(endpoint: endpoint, method: method)
+                    var request = try await createBaseRequest(
+                        endpoint: endpoint, method: method,
+                        additionalQueryParameters: builder.additionalQueryParameters)
                     try applyBuilderOverrides(builder, to: &request)
 
                     eventMonitor.requestDidStart(request, endpoint: endpoint.stringValue, method: method.rawValue)
@@ -161,8 +165,25 @@ extension BaseAPI.BaseAPIClient {
 
     // MARK: - Internal Helpers
 
-    func createBaseRequest(endpoint: Endpoint, method: BaseAPI.HTTPMethod) async throws -> URLRequest {
-        var request = URLRequest(url: endpoint.url)
+    func createBaseRequest(
+        endpoint: Endpoint,
+        method: BaseAPI.HTTPMethod,
+        additionalQueryParameters: [String: String] = [:]
+    ) async throws -> URLRequest {
+        let url: URL
+        if additionalQueryParameters.isEmpty {
+            url = endpoint.url
+        } else {
+            var components = URLComponents(url: endpoint.url, resolvingAgainstBaseURL: false)!
+            var items = components.queryItems ?? []
+            for (key, value) in additionalQueryParameters.sorted(by: { $0.key < $1.key }) {
+                items.removeAll { $0.name == key }
+                items.append(URLQueryItem(name: key, value: value))
+            }
+            components.queryItems = items
+            url = components.url ?? endpoint.url
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.addJSONHeaders(additionalHeaders: endpoint.headers ?? [:])
         return try await interceptorChain.adapt(request)
