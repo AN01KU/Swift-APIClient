@@ -10,14 +10,14 @@ jobs:
   format:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Check formatting
         run: xcrun swift-format lint --recursive ./Sources ./Tests
 
   build-and-test:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache Swift packages
         uses: actions/cache@v5
